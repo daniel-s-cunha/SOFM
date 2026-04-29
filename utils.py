@@ -52,19 +52,18 @@ def _constr_spat_blk(da,blk_sz=10):
 
 def _create_mask(da,n_clusters=80,blk_sz=10):
     #
-    spat_blk = _constr_spat_blk(ds.mean(dim='time'), blk_sz=blk_sz)
+    spat_blk = _constr_spat_blk(da, blk_sz=blk_sz)
     block_ids = spat_blk.values
-    lats = ds.lat.values
-    lons = ds.lon.values
+    lats = da.lat.values
+    lons = da.lon.values
     uniq = np.unique(block_ids)
-
-    # 2. Compute the true geographic (lat, lon) center of every valid block
+    #
     centers = []
     valid_uniq = []
-
+    #
     for uid in uniq:
         in_block = (block_ids == uid)
-        if np.any(in_block): # Ensure we only look at blocks with actual land pixels
+        if np.any(in_block): 
             centers.append([np.mean(lats[in_block]), np.mean(lons[in_block])])
             valid_uniq.append(uid)
             
@@ -78,30 +77,607 @@ def _create_mask(da,n_clusters=80,blk_sz=10):
     tree = cKDTree(centers)
     _, closest_idx = tree.query(centroids)
     #
-    evenly_spaced_block_ids = valid_uniq[closest_idx]
+    mask_ids = valid_uniq[closest_idx]
     #
-    mask = torch.tensor(np.where(np.isin(spat_blk, evenly_spaced_block_ids), spat_blk, 0),dtype=torch.int16)
+    mask_centers = centers[closest_idx]
     #
-    return mask
+    mask = torch.tensor(np.where(np.isin(spat_blk, mask_ids), spat_blk, 0),dtype=torch.int16)
+    #
+    return mask, mask_ids, mask_centers
 
+def _gen_spat_da(sq_len,k=3):
+    unique_coords = np.arange(1, sq_len + 1)
+    lon_grid, lat_grid = np.meshgrid(unique_coords, unique_coords)
+    lat_flat = lat_grid.flatten()
+    lon_flat = lon_grid.flatten()
+    total_locations = sq_len ** 2
+    random_data = np.random.rand(total_locations)
+    da = xr.DataArray(
+        data=random_data,
+        dims=["location"],
+        coords={
+            "lat": ("location", lat_flat),
+            "lon": ("location", lon_flat)
+        }
+    )
+    phi=1e5
+    m = sq_len**2
+    Sigma = _compute_spat_cov_rs(da, phi=phi, length_scale=5, max_lag=20)
+    #
+    _, U = torch.lobpcg(A=Sigma, k=k, largest=True)
+    #
+    sigma, L_diag = _optimize_log_prior(U, Sigma, phi, m, k)
+    #
+    T_new = 500
+    #
+    EZ = np.random.normal(size=(k, T_new))
+    #
+    sim = U@np.diag(L_diag)@EZ + np.random.normal(loc=0,scale=sigma, size=(m, T_new))
+    sim_da = xr.DataArray(
+        data=sim,
+        dims=('location','gene'),
+        coords={
+            'location': da.location,
+            'lon': da.lon,
+            'lat':da.lat
+        }
+    )
+    return sim_da
 
+def _optimize_log_prior(U, Sigma, phi, m, k):
+    sigma = torch.tensor(1, dtype=torch.float32)
+    L_diag = torch.tensor([5*(k - j) for j in range(k)],dtype=torch.float32)
+    #
+    Ut = U.clone().detach().to(torch.float32)#Ut = torch.tensor(U,dtype=torch.float32)
+    SU = Sigma @ Ut
+    Ut_Sigma_U = (Ut*SU).sum(dim=0)
+    trSigma = torch.tensor(phi*m, dtype = torch.float32)
+    #
+    log_sigma = torch.nn.Parameter(torch.log(sigma.clone().detach()))
+    log_L_diag = torch.nn.Parameter(torch.log(L_diag.clone().detach()))
+    optimizer = torch.optim.Adam([log_sigma, log_L_diag], lr=0.05)
+    pls = float('inf')
+    for i in range(100): # Allow more iterations since M-steps need to converge
+        optimizer.zero_grad()
+        sigma = torch.exp(log_sigma)
+        L_diag = torch.exp(log_L_diag)
+        loss = -log_prior(sigma, L_diag, U, m, Ut_Sigma_U, trSigma, k) 
+        ls = loss.item()
+        if abs(pls - ls) / (abs(pls) + 1e-8) < 1e-5: 
+            break            
+        pls = ls
+        loss.backward()
+        optimizer.step()
+    return sigma.detach().numpy(), L_diag.detach().numpy()
 
+def _compute_spat_cov_rs(da,phi=1, length_scale = 1, length_scale2 = -99, max_lag=1,taper=False):
+    cov = _construct_index_based_cov(
+        da.lat.values, 
+        da.lon.values, 
+        variance=phi,
+        length_scale = length_scale,
+        length_scale2 = length_scale2,
+        max_lag=max_lag,
+        taper=taper
+    )
+    #
+    return _convert_S_tensor(cov)
 
+def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, length_scale2=-99, max_lag=5,taper=False):
+    N = len(lats)
+    
+    u_lats = np.unique(np.round(lats, 8))
+    u_lons = np.unique(np.round(lons, 8))
+    
+    n_rows = len(u_lats)
+    n_cols = len(u_lons)
+    
+    row_indices = np.searchsorted(u_lats, np.round(lats, 8))
+    col_indices = np.searchsorted(u_lons, np.round(lons, 8))
+    
+    grid_map = np.full((n_rows, n_cols), -1, dtype=np.int32)
+    grid_map[row_indices, col_indices] = np.arange(N)
 
+    rows_out = []
+    cols_out = []
+    data_out = []
+    
+    rows_out.append(np.arange(N))
+    cols_out.append(np.arange(N))
+    data_out.append(np.full(N, variance))
 
+    lat_step = np.min(np.diff(u_lats))
+    lon_step = np.min(np.diff(u_lons))        
+    min_step = min(lat_step, lon_step)
 
+    if length_scale2==-99:
+        beta = min_step*max_lag
+    else:
+        beta = np.sqrt((lat_step*max_lag)**2/length_scale + (lon_step*max_lag)**2/length_scale2)
+    
+    for dr in range(-max_lag, max_lag + 1):
+        for dc in range(-max_lag, max_lag + 1):
+            if dr == 0 and dc == 0: 
+                continue 
 
+            if dr >= 0:
+                r_src_start, r_src_end = 0, n_rows - dr
+                r_dst_start, r_dst_end = dr, n_rows
+            else:
+                r_src_start, r_src_end = -dr, n_rows
+                r_dst_start, r_dst_end = 0, n_rows + dr
+                
+            if dc >= 0:
+                c_src_start, c_src_end = 0, n_cols - dc
+                c_dst_start, c_dst_end = dc, n_cols
+            else:
+                c_src_start, c_src_end = -dc, n_cols
+                c_dst_start, c_dst_end = 0, n_cols + dc
+            
+            # If shift is larger than grid, skip
+            if r_src_end <= r_src_start or c_src_end <= c_src_start:
+                continue
 
+            src = grid_map[r_src_start:r_src_end, c_src_start:c_src_end].ravel()
+            dst = grid_map[r_dst_start:r_dst_end, c_dst_start:c_dst_end].ravel()
+            
+            mask = (src != -1) & (dst != -1)
+            
+            mask &= (src < dst)
+            
+            if not mask.any():
+                continue
+                
+            u = src[mask]
+            v = dst[mask]
+            if length_scale2==-99:
+                d_sq = (lats[u] - lats[v])**2 + (lons[u] - lons[v])**2                
+                vals = variance * np.exp(-d_sq / (2*length_scale**2))
+                if taper:
+                    tap = np.maximum(0, 1 - d_sq**0.5 / beta)**4 * (1 + 4 * d_sq**0.5 / beta)
+                    vals = vals*tap
+            else:
+                #anisotropic
+                d_sq = (lats[u] - lats[v])**2 / (2*length_scale**2) + (lons[u] - lons[v])**2 / (2*length_scale2**2)
+                vals = variance * np.exp(-d_sq) 
+                if taper:
+                    tap = np.maximum(0, 1 - d_sq**0.5 / beta)**4 * (1 + 4 * d_sq**0.5 / beta)
+                    vals = vals*tap
+            rows_out.append(u)
+            cols_out.append(v)
+            data_out.append(vals)
 
+    diag_vals = data_out[0]
+    
+    if len(rows_out) > 1:
+        off_rows = np.concatenate(rows_out[1:])
+        off_cols = np.concatenate(cols_out[1:])
+        off_vals = np.concatenate(data_out[1:])
+        
+        tri = sp.coo_matrix((off_vals, (off_rows, off_cols)), shape=(N, N))
+        
+        full_cov = tri + tri.T + sp.diags(diag_vals, format='coo')
+    else:
+        full_cov = sp.diags(diag_vals, format='coo')
+        
+    return full_cov.tocsr()
 
+def _convert_S_tensor(scp_matrix):
+    data = scp_matrix.data
+    indices = scp_matrix.indices
+    indptr = scp_matrix.indptr
+    
+    t_data = torch.as_tensor(data,dtype=torch.float32)
+    t_indices = torch.from_numpy(indices).to(torch.int32)
+    t_indptr = torch.from_numpy(indptr).to(torch.int32)
+    
+    torch_csr = torch.sparse_csr_tensor(
+        t_indptr, 
+        t_indices, 
+        t_data, 
+        size=scp_matrix.shape
+    )    
+    return torch_csr
 
+def log_prior(sigma, L_diag, U, m, Ut_Sigma_U, trSigma,k):
+    #
+    #
+    sigma2 = sigma**2
+    L2 = L_diag**2
+    lambda_vals = 1.0 / (L2 + sigma2) # (L^2 + s^2)^-1
+    # t1 = -T * (m / 2.0) * torch.log(sigma2)
+    inner_diag = -L2 / (sigma2 * (L2 + sigma2)) #lambda_vals - (1/sigma2)
+    tr_part1 = torch.sum(inner_diag * Ut_Sigma_U)
+    #FIXME: change tr_part2 to be 0 in the singular case
+    tr_part2 = (1/sigma2) * trSigma 
+    t3 = -0.5 * (tr_part1 + tr_part2)
+    #
+    lambda_sorted, _ = torch.sort(lambda_vals, descending=False)
+    diff_matrix = lambda_sorted.unsqueeze(0) - lambda_sorted.unsqueeze(1)
+    rows, cols = torch.triu_indices(k, k, offset=1)
+    t4 = torch.sum(torch.log(diff_matrix[rows, cols]))
+    #
+    #t5 = torch.sum(torch.log((1/sigma2) - lambda_vals)) #
+    t5 = (m - k) * torch.sum(torch.log((1/sigma2) - lambda_vals))
+    #
+    const_6 = (m - k)*(m - k - 1)/2.0 + 3.0#(n - m)*(m - k) +
+    t6 = -0.5 * const_6 * torch.log(sigma2)
+    #
+    const_7 = 3.0#(n - m) +
+    t7 = -0.5 * const_7 * torch.sum(torch.log(L2 + sigma2))
+    #
+    t8 = torch.sum(torch.log(torch.abs(L_diag)))
+    #
+    terms = {
+        't3': t3, 't4': t4, 
+        't5': t5, 't6': t6, 't7': t7, 't8': t8
+    }
+    #print(terms)
+    #total = t1 + t2 + t3 + t4 + t5 + t6 + t7 + t8
+    total = sum(terms.values())
+    #
+    return total/m
 
+def _cv_spatPCA(
+    Y_da,
+    Sigma,
+    mask,
+    k: int,
+    phi = 1,
+    lr_s = 1e-3,
+    lr_l = 1e-2,
+    df = 1,
+    sigma2_init_set = [1],
+    max_em_iter: int = 6,
+    tol_em: float = 1e-3,
+    verb = False
+):
+    mask_ids = mask #these will be used for single block MSEs
+    mask = (mask != 0) #this is used to hold out data
+    #
+    m = Y_da.shape[0] #total locations including those held out
+    T = Y_da.shape[1]
+    n = m+df
+    m0 = m - mask.sum() #total observed locations inlcuding held-out
+    #
+    perm = torch.argsort(mask.long())
+    reverse_perm = torch.argsort(perm)
+    #
+    mask_ids = mask_ids[perm]
+    #
+    Y_temp = torch.as_tensor(Y_da.values, dtype=torch.float32, device=perm.device)[perm]
+    Y = Y_temp[0:m0,:]
+    Yp = Y_temp[m0:,:] #only to be used for validation, not in training
+    term1 = (Y**2).sum()
+    trSigma = torch.tensor(phi*m, dtype = torch.float32)
+    #
+    # Initialize
+    np.random.seed(42)
+    Y_aug = torch.cat((Y, torch.tensor(np.random.normal(0,1,(m-m0,Y.shape[1])),dtype=torch.float32)),dim=0) #(Sigma/phi) @
+    ULVT = randomized_svd(Y_aug.numpy(), n_components=k,n_iter=1)
+    U = torch.tensor(ULVT[0], dtype=torch.float32)
+    U_rp = U[reverse_perm,:]
+    SU_rp = Sigma@U_rp
+    Lams = ULVT[1]**2/T
+    sigma2 = (term1.numpy()/T - np.sum(Lams))/(m-k)
+    L_approx = (Lams - sigma2)**0.5
+    L_diag = torch.tensor(L_approx, dtype=torch.float32, requires_grad=True) 
+    print('INITIAL L: ',L_diag)
+    sigma = torch.tensor(sigma2**0.5, dtype=torch.float32, requires_grad=True)
+    #
+    prev_ll = -torch.inf
+    #
+    sigma2 = sigma**2
+    L_tilde = -(1/(L_diag**2 + sigma2) - 1/sigma2)
+    #SU = Sigma @ U
+    SU = (Sigma@U_rp)[perm,:]
+    #
+    log_sigma = torch.nn.Parameter(torch.log(sigma.clone().detach()))
+    log_L_diag = torch.nn.Parameter(torch.log(L_diag.clone().detach()))
+    optimizer = torch.optim.Adam([log_sigma, log_L_diag], lr=lr_s)
+    #
+    for iteration in range(max_em_iter):        
+        #
+        # E-step
+        with torch.no_grad():
+            print("starting E-step...")
+            #
+            Uo = U[0:m0,:]
+            M = (L_diag.unsqueeze(1)*Uo.T@Uo*L_diag.unsqueeze(0) + sigma2*torch.eye(k))
+            ch = torch.cholesky(M)
+            M_inv = torch.cholesky_solve(torch.eye(k),ch)
+            #
+            Ez = M_inv @ (Uo * L_diag.unsqueeze(0)).T @ Y #Only used observed U's
+            Ezz = T * sigma2 * M_inv + Ez @ Ez.T 
+            sum_yz = Y @ Ez.T #(m0 x T) @ (T x k) = (m0 x k)
+            Upt = U[m0:,:].detach().clone()
+            term12 = _comp_trEyp_yp(Y,U,L_diag,sigma2,M_inv,m,m0,T)
+            #Ezyt = Ezz * L_diag.unsqueeze(0) @ Up_old.T #Do this in loss function to save memory
+            print("completed E-step...")
+            L_diag_t = L_diag.detach().clone()
+            #
+            print("starting M-step U...")
+            for jj in range(5):
+                U_old = U
+                G = torch.cat((sum_yz, (Upt*L_diag.unsqueeze(0))@Ezz),dim=0) * L_diag.unsqueeze(0) / sigma2 + SU * L_tilde.unsqueeze(0)
+                ULVT = torch.linalg.svd(G, full_matrices=False)
+                U = ULVT[0] @ ULVT[2]
+                #SU = Sigma @ U
+                SU = (Sigma@U[reverse_perm,:])[perm,:]
+                if (abs(U - U_old)).sum() <1e-1:
+                    print("M-step U finished iteration: ",jj)
+                    break
+            
+            Ut_Sigma_U = (U*SU).sum(dim=0)
+            loss = _neg_lik_val(sigma, L_diag, U, L_diag_t, Ez, Ezz, m, T, Y, term1, term12, Upt, Ut_Sigma_U, trSigma, n, k, m0) #compute_negative_likelihood(sigma, L_diag)
+            ls = loss.item()
+            print(f"Q after U M-step: {-ls:.5f}",f" Iteration: {iteration}")
+        #
+        pls = float('inf')
+        for i in range(100): # Allow more iterations since M-steps need to converge
+            optimizer.zero_grad()
+            sigma = torch.exp(log_sigma)
+            L_diag = torch.exp(log_L_diag)
+            loss = _neg_lik_val(sigma, L_diag, U, L_diag_t, Ez, Ezz, m, T, Y, term1, term12, Upt, Ut_Sigma_U, trSigma, n, k, m0)
+            ls = loss.item()
+            if abs(pls - ls) / (abs(pls) + 1e-8) < 1e-5: 
+                if verb: 
+                    print(f"Prior loss {pls:.5f} and current loss {ls:.5f}")
+                    print(f"L_diag: {L_diag.detach().numpy()}")
+                    print(f"sigma: {sigma.detach().numpy():.5f}")
+                    print(f"M-Step for L and sigma converged at iter {i}")
+                break
+                
+            pls = ls
+            loss.backward()
+            optimizer.step()
 
+        sigma2 = sigma**2
+        L_tilde = -(1/(L_diag**2 + sigma2) - 1/sigma2)
+        #
+        print(f"Q: {-ls:.5f}",f" Iteration: {iteration}")
+        if (abs(ls - prev_ll) < tol_em * abs(prev_ll)) and (iteration > 2):
+            break
+        prev_ll = ls        
+    #
+    #
+    nlls,nll_tot = _comp_nll(Yp,Y,U,L_diag,sigma2,M_inv,m,m0,mask_ids)
+    L_diag, indices = torch.sort(L_diag, descending=True)
+    U = U[:, indices]
+    Ez = Ez[indices, :]
+    return U[reverse_perm,:], L_diag, Ez, sigma2, nlls,nll_tot
 
+def _comp_trEyp_yp(Y,U,L_diag,sigma2,M_inv,m,m0,T):
+    #This calculates the sum_i trEyipyip'
+    Uo = U[0:m0,:]
+    Up = U[m0:,:]
+    L = L_diag.unsqueeze(0)
+    #
+    UoTUo = Uo.T@Uo
+    UpTUp = Up.T @ Up    
+    #
+    t1 = sigma2 * torch.trace(UpTUp * L @ M_inv * L) 
+    t2 = sigma2*(m-m0)
+    #    
+    Eyp = (Up * L) @ M_inv @ (Uo * L).T @ Y
+    t3 = torch.sum(Eyp**2)
+    #
+    trEyp_yp = T*(t1 + t2) + t3
+    #
+    return trEyp_yp
 
+def _neg_lik_val(sigma, L_diag, U, L_diag_t, Ez, Ezz, m, T, Y, term1, term12, Upt, Ut_Sigma_U, trSigma, n, k, m0):
+    #
+    sigma2 = sigma**2
+    L2 = L_diag**2
+    lambda_vals = 1.0 / (L2 + sigma2) # (L^2 + s^2)^-1
+    t1 = -T * (m / 2.0) * torch.log(sigma2)
+    #
+    Up = U[m0:,:]
+    UoL = U[0:m0,:] * L_diag.unsqueeze(0)
+    #
+    trace_A = 2.0 * torch.sum((Y.t() @ UoL) * Ez.t())
+    L_mat = torch.diag(L_diag); L_mat_t = torch.diag(L_diag_t)
+    trace_A2 = 2.0*torch.trace(Ezz @ L_mat_t @ Upt.T @ Up @ L_mat) #2.0 * torch.trace((L_mat @ Ezz @ L_mat) @ (Upt.T @ Upt))
+    Ezz_diag = torch.diagonal(Ezz, dim1=-2, dim2=-1)
+    trace_B = torch.sum(Ezz_diag * L2.unsqueeze(0))
+    t2 = -0.5 * (1/sigma2) * (term1 + term12 - trace_A - trace_A2 + trace_B)
+    #
+    inner_diag = -L2 / (sigma2 * (L2 + sigma2)) #lambda_vals - (1/sigma2)
+    tr_part1 = torch.sum(inner_diag * Ut_Sigma_U)
+    tr_part2 = (1/sigma2) * trSigma #torch.trace(Sigma)
+    t3 = -0.5 * (tr_part1 + tr_part2)
+    #
+    lambda_sorted, _ = torch.sort(lambda_vals, descending=False)
+    diff_matrix = lambda_sorted.unsqueeze(0) - lambda_sorted.unsqueeze(1)
+    rows, cols = torch.triu_indices(k, k, offset=1)
+    t4 = torch.sum(torch.log(diff_matrix[rows, cols]))
+    #
+    #FIXME: singularWishart update
+    t5 = (m - k) * torch.sum(torch.log((1/sigma2) - lambda_vals))
+    #
+    #FIXME: singularWishart update
+    const_6 = (m - k)*(m - k - 1)/2.0 + 3.0 #(n - m)*(m - k) +
+    t6 = -0.5 * const_6 * torch.log(sigma2)
+    #
+    #FIXME: singularWishart update
+    const_7 = 3.0 #(n - m) +
+    t7 = -0.5 * const_7 * torch.sum(torch.log(L2 + sigma2))
+    #
+    t8 = torch.sum(torch.log(torch.abs(L_diag)))
+    #
+    total = t1 + t2 + t3 + t4 + t5 + t6 + t7 + t8
+    return -total/(T*m)
 
+def _comp_nll(Yp,Y,U,L_diag,sigma2,M_inv,m,m0,mask_ids):
+    T = Y.shape[1]
+    mask_ids = mask_ids[m0:] #mask_ids should already be permuted with observed first, masked second
+    #
+    Uo = U[0:m0,:]
+    Up = U[m0:,:]
+    L = L_diag.unsqueeze(0)
+    #
+    Eyp = (Up * L) @ M_inv @ (Uo * L).T @ Y
+    # nll = torch.mean((Yp - Eyp)**2)
+    #
+    nll = ((Yp - Eyp)**2).sum(dim=1).detach().numpy()/T
+    mask_ids = mask_ids.numpy()
+    #
+    nll_df = pd.DataFrame({'mask_id':mask_ids, 'nll':nll})
+    nlls = nll_df.groupby('mask_id')['nll'].mean()
+    #
+    nll_tot = ((Yp - Eyp)**2).mean()
+    #
+    return nlls,nll_tot
 
+def _fit_spline(da, data_array, gamma_u=1, gamma_v=1, num_interior_knots=30, degree=3):
+    #
+    ls_lat = data_array[:, 0]
+    ls_lon = data_array[:, 1]
+    lats = data_array[:, 2]
+    lons = data_array[:, 3]
+    domain_lats = da.lat.values
+    domain_lons = da.lon.values
+    #
+    y_lat = np.log(ls_lat)
+    y_lon = np.log(ls_lon)
+    
+    N = len(lats)
+    
+    pad_lat = (np.max(domain_lats) - np.min(domain_lats)) * 0.01
+    pad_lon = (np.max(domain_lons) - np.min(domain_lons)) * 0.01
+    
+    domain_lat_min, domain_lat_max = np.min(domain_lats) - pad_lat, np.max(domain_lats) + pad_lat
+    domain_lon_min, domain_lon_max = np.min(domain_lons) - pad_lon, np.max(domain_lons) + pad_lon
 
+    u_knots = np.linspace(domain_lat_min, domain_lat_max, num_interior_knots)
+    t_u = np.r_[[u_knots[0]] * degree, u_knots, [u_knots[-1]] * degree]
+    
+    v_knots = np.linspace(domain_lon_min, domain_lon_max, num_interior_knots)
+    t_v = np.r_[[v_knots[0]] * degree, v_knots, [v_knots[-1]] * degree]
+    
+    B_u = BSpline.design_matrix(lats, t_u, degree).toarray()
+    B_v = BSpline.design_matrix(lons, t_v, degree).toarray()
+    
+    K_u = B_u.shape[1]
+    K_v = B_v.shape[1]
+    K_total = K_u * K_v
+    
+    B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, K_total)
+    
+    D_u = np.diff(np.eye(K_u), n=2, axis=0)
+    D_v = np.diff(np.eye(K_v), n=2, axis=0)
+    
+    Du_T_Du = D_u.T @ D_u
+    Dv_T_Dv = D_v.T @ D_v
+    
+    P_u = np.kron(np.eye(K_v), Du_T_Du)
+    P_v = np.kron(Dv_T_Dv, np.eye(K_u))
+    
+    BtB = B.T @ B
+    lhs = BtB + gamma_u * P_u + gamma_v * P_v
+    
+    rhs_lat = B.T @ y_lat
+    rhs_lon = B.T @ y_lon
+    
+    alpha_lat = np.linalg.solve(lhs, rhs_lat)
+    alpha_lon = np.linalg.solve(lhs, rhs_lon)
+    
+    return alpha_lat, alpha_lon, t_u, t_v
 
+def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=1.0, max_lag=5, degree=3):
+    N = len(lats)
+        
+    B_u = BSpline.design_matrix(lats, t_u, degree).toarray()
+    B_v = BSpline.design_matrix(lons, t_v, degree).toarray()
 
+    B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, -1)
+    lam_lat = np.exp(B @ alpha_lat)
+    lam_lon = np.exp(B @ alpha_lon)
+    
+    # --- 2. Grid Mapping for Fast Neighbor Search ---
+    u_lats = np.unique(np.round(lats, 8))
+    u_lons = np.unique(np.round(lons, 8))
+    
+    n_rows = len(u_lats)
+    n_cols = len(u_lons)
+    
+    row_indices = np.searchsorted(u_lats, np.round(lats, 8))
+    col_indices = np.searchsorted(u_lons, np.round(lons, 8))
+    
+    grid_map = np.full((n_rows, n_cols), -1, dtype=np.int32)
+    grid_map[row_indices, col_indices] = np.arange(N)
+
+    rows_out = [np.arange(N)]
+    cols_out = [np.arange(N)]
+    data_out = [np.full(N, variance)]
+    
+    for dr in range(-max_lag, max_lag + 1):
+        for dc in range(-max_lag, max_lag + 1):
+            if dr == 0 and dc == 0: 
+                continue 
+
+            if dr >= 0:
+                r_src_start, r_src_end = 0, n_rows - dr
+                r_dst_start, r_dst_end = dr, n_rows
+            else:
+                r_src_start, r_src_end = -dr, n_rows
+                r_dst_start, r_dst_end = 0, n_rows + dr
+                
+            if dc >= 0:
+                c_src_start, c_src_end = 0, n_cols - dc
+                c_dst_start, c_dst_end = dc, n_cols
+            else:
+                c_src_start, c_src_end = -dc, n_cols
+                c_dst_start, c_dst_end = 0, n_cols + dc
+            
+            if r_src_end <= r_src_start or c_src_end <= c_src_start:
+                continue
+
+            src = grid_map[r_src_start:r_src_end, c_src_start:c_src_end].ravel()
+            dst = grid_map[r_dst_start:r_dst_end, c_dst_start:c_dst_end].ravel()
+            
+            mask = (src != -1) & (dst != -1)
+            mask &= (src < dst)
+            
+            if not mask.any():
+                continue
+                
+            u = src[mask]
+            v = dst[mask]
+            
+            lam_lat_u, lam_lat_v = lam_lat[u], lam_lat[v]
+            lam_lon_u, lam_lon_v = lam_lon[u], lam_lon[v]
+            
+            avg_var_lat = (lam_lat_u**2 + lam_lat_v**2) / 2.0
+            avg_var_lon = (lam_lon_u**2 + lam_lon_v**2) / 2.0
+            
+            det_u = lam_lat_u * lam_lon_u
+            det_v = lam_lat_v * lam_lon_v
+            det_avg = np.sqrt(avg_var_lat * avg_var_lon)
+            
+            S_uv = np.sqrt(det_u * det_v) / det_avg
+            
+            Q_uv = ((lats[u] - lats[v])**2 / avg_var_lat) + ((lons[u] - lons[v])**2 / avg_var_lon)
+            
+            vals = variance * S_uv * np.exp(-0.5 * Q_uv)
+            
+            rows_out.append(u)
+            cols_out.append(v)
+            data_out.append(vals)
+
+    diag_vals = data_out[0]
+    
+    if len(rows_out) > 1:
+        off_rows = np.concatenate(rows_out[1:])
+        off_cols = np.concatenate(cols_out[1:])
+        off_vals = np.concatenate(data_out[1:])
+        
+        tri = sp.coo_matrix((off_vals, (off_rows, off_cols)), shape=(N, N))
+        
+        full_cov = tri + tri.T + sp.diags(diag_vals, format='coo')
+    else:
+        full_cov = sp.diags(diag_vals, format='coo')
+        
+    return _convert_S_tensor(full_cov.tocsr())
 
