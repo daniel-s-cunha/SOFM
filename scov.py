@@ -128,12 +128,12 @@ class SpatialCovariance:
 
 		fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 
-		W_da.plot(ax=axes[0], cmap='copper', add_colorbar=True, cbar_kwargs={'format': '%.1f'})
+		W_da.plot(ax=axes[0], cmap='copper', add_colorbar=True, robust=True, cbar_kwargs={'format': '%.1f'})
 		axes[0].set_title('Latitudinal length scale')
 		axes[0].set_xlabel('Longitude')
 		axes[0].set_ylabel('Latitude')
 
-		W_da2.plot(ax=axes[1], cmap='copper', add_colorbar=True, cbar_kwargs={'format': '%.1f'})
+		W_da2.plot(ax=axes[1], cmap='copper', add_colorbar=True, robust=True, cbar_kwargs={'format': '%.1f'})
 		axes[1].set_title('Longitudinal length scale')
 		axes[1].set_xlabel('Longitude')
 		axes[1].set_ylabel('Latitude')
