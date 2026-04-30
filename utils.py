@@ -556,15 +556,14 @@ def _comp_nll(Yp,Y,U,L_diag,sigma2,M_inv,m,m0,mask_ids):
     #
     return nlls,nll_tot
 
-def _fit_spline(da, data_array, gamma_u=5, gamma_v=5, num_interior_knots=10, degree=3):
-    #
+def _fit_spline(da, data_array, gamma_u=5, gamma_v=5, num_interior_knots=10, gamma_grid=np.logspace(-2, 4, 7), knot_grid=[5, 10, 15, 20], degree=3):
     ls_lat = data_array[:, 0]
     ls_lon = data_array[:, 1]
     lats = data_array[:, 2]
     lons = data_array[:, 3]
     domain_lats = da.lat.values
     domain_lons = da.lon.values
-    #
+    
     y_lat = np.log(ls_lat)
     y_lon = np.log(ls_lon)
     
@@ -576,40 +575,141 @@ def _fit_spline(da, data_array, gamma_u=5, gamma_v=5, num_interior_knots=10, deg
     domain_lat_min, domain_lat_max = np.min(domain_lats) - pad_lat, np.max(domain_lats) + pad_lat
     domain_lon_min, domain_lon_max = np.min(domain_lons) - pad_lon, np.max(domain_lons) + pad_lon
 
-    u_knots = np.linspace(domain_lat_min, domain_lat_max, num_interior_knots)
-    t_u = np.r_[[u_knots[0]] * degree, u_knots, [u_knots[-1]] * degree]
+    best_gcv = np.inf
+    best_params = None
+    best_alpha_lat = None
+    best_alpha_lon = None
+    best_t_u = None
+    best_t_v = None
+
+    # Outer loop: Number of knots (Expensive basis creation)
+    for num_knots in knot_grid:
+        u_knots = np.linspace(domain_lat_min, domain_lat_max, num_knots)
+        t_u = np.r_[[u_knots[0]] * degree, u_knots, [u_knots[-1]] * degree]
+        
+        v_knots = np.linspace(domain_lon_min, domain_lon_max, num_knots)
+        t_v = np.r_[[v_knots[0]] * degree, v_knots, [v_knots[-1]] * degree]
+        
+        B_u = BSpline.design_matrix(lats, t_u, degree).toarray()
+        B_v = BSpline.design_matrix(lons, t_v, degree).toarray()
+        
+        K_u = B_u.shape[1]
+        K_v = B_v.shape[1]
+        K_total = K_u * K_v
+        
+        B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, K_total)
+        
+        D_u = np.diff(np.eye(K_u), n=2, axis=0)
+        D_v = np.diff(np.eye(K_v), n=2, axis=0)
+        
+        Du_T_Du = D_u.T @ D_u
+        Dv_T_Dv = D_v.T @ D_v
+        
+        P_u = np.kron(np.eye(K_v), Du_T_Du)
+        P_v = np.kron(Dv_T_Dv, np.eye(K_u))
+        
+        BtB = B.T @ B
+        rhs_lat = B.T @ y_lat
+        rhs_lon = B.T @ y_lon
+
+        # Inner loop: Smoothing parameters (Fast matrix inversion)
+        for g_u, g_v in itertools.product(gamma_grid, gamma_grid):
+            lhs = BtB + g_u * P_u + g_v * P_v
+            
+            try:
+                # Invert LHS once per gamma combination
+                lhs_inv = np.linalg.inv(lhs)
+            except np.linalg.LinAlgError:
+                continue # Skip if singular
+            
+            alpha_lat = lhs_inv @ rhs_lat
+            alpha_lon = lhs_inv @ rhs_lon
+            
+            y_hat_lat = B @ alpha_lat
+            y_hat_lon = B @ alpha_lon
+            
+            sse_lat = np.sum((y_lat - y_hat_lat)**2)
+            sse_lon = np.sum((y_lon - y_hat_lon)**2)
+            
+            # Fast calculation of trace(lhs_inv @ BtB) using element-wise product
+            edf = np.sum(lhs_inv * BtB.T)
+            
+            denom = (1 - edf / N)**2
+            
+            if denom <= 0:
+                continue
+                
+            gcv_lat = (sse_lat / N) / denom
+            gcv_lon = (sse_lon / N) / denom
+            
+            # Minimize the combined GCV of both latitudinal and longitudinal length scales
+            total_gcv = gcv_lat + gcv_lon
+            
+            if total_gcv < best_gcv:
+                best_gcv = total_gcv
+                best_params = (g_u, g_v, num_knots)
+                best_alpha_lat = alpha_lat
+                best_alpha_lon = alpha_lon
+                best_t_u = t_u
+                best_t_v = t_v
+
     
-    v_knots = np.linspace(domain_lon_min, domain_lon_max, num_interior_knots)
-    t_v = np.r_[[v_knots[0]] * degree, v_knots, [v_knots[-1]] * degree]
+    return best_alpha_lat, best_alpha_lon, best_t_u, best_t_v
+
+# def _fit_spline(da, data_array, gamma_u=5, gamma_v=5, num_interior_knots=10, degree=3):
+#     #
+#     ls_lat = data_array[:, 0]
+#     ls_lon = data_array[:, 1]
+#     lats = data_array[:, 2]
+#     lons = data_array[:, 3]
+#     domain_lats = da.lat.values
+#     domain_lons = da.lon.values
+#     #
+#     y_lat = np.log(ls_lat)
+#     y_lon = np.log(ls_lon)
     
-    B_u = BSpline.design_matrix(lats, t_u, degree).toarray()
-    B_v = BSpline.design_matrix(lons, t_v, degree).toarray()
+#     N = len(lats)
     
-    K_u = B_u.shape[1]
-    K_v = B_v.shape[1]
-    K_total = K_u * K_v
+#     pad_lat = (np.max(domain_lats) - np.min(domain_lats)) * 0.01
+#     pad_lon = (np.max(domain_lons) - np.min(domain_lons)) * 0.01
     
-    B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, K_total)
+#     domain_lat_min, domain_lat_max = np.min(domain_lats) - pad_lat, np.max(domain_lats) + pad_lat
+#     domain_lon_min, domain_lon_max = np.min(domain_lons) - pad_lon, np.max(domain_lons) + pad_lon
+
+#     u_knots = np.linspace(domain_lat_min, domain_lat_max, num_interior_knots)
+#     t_u = np.r_[[u_knots[0]] * degree, u_knots, [u_knots[-1]] * degree]
     
-    D_u = np.diff(np.eye(K_u), n=2, axis=0)
-    D_v = np.diff(np.eye(K_v), n=2, axis=0)
+#     v_knots = np.linspace(domain_lon_min, domain_lon_max, num_interior_knots)
+#     t_v = np.r_[[v_knots[0]] * degree, v_knots, [v_knots[-1]] * degree]
     
-    Du_T_Du = D_u.T @ D_u
-    Dv_T_Dv = D_v.T @ D_v
+#     B_u = BSpline.design_matrix(lats, t_u, degree).toarray()
+#     B_v = BSpline.design_matrix(lons, t_v, degree).toarray()
     
-    P_u = np.kron(np.eye(K_v), Du_T_Du)
-    P_v = np.kron(Dv_T_Dv, np.eye(K_u))
+#     K_u = B_u.shape[1]
+#     K_v = B_v.shape[1]
+#     K_total = K_u * K_v
     
-    BtB = B.T @ B
-    lhs = BtB + gamma_u * P_u + gamma_v * P_v
+#     B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, K_total)
     
-    rhs_lat = B.T @ y_lat
-    rhs_lon = B.T @ y_lon
+#     D_u = np.diff(np.eye(K_u), n=2, axis=0)
+#     D_v = np.diff(np.eye(K_v), n=2, axis=0)
     
-    alpha_lat = np.linalg.solve(lhs, rhs_lat)
-    alpha_lon = np.linalg.solve(lhs, rhs_lon)
+#     Du_T_Du = D_u.T @ D_u
+#     Dv_T_Dv = D_v.T @ D_v
     
-    return alpha_lat, alpha_lon, t_u, t_v
+#     P_u = np.kron(np.eye(K_v), Du_T_Du)
+#     P_v = np.kron(Dv_T_Dv, np.eye(K_u))
+    
+#     BtB = B.T @ B
+#     lhs = BtB + gamma_u * P_u + gamma_v * P_v
+    
+#     rhs_lat = B.T @ y_lat
+#     rhs_lon = B.T @ y_lon
+    
+#     alpha_lat = np.linalg.solve(lhs, rhs_lat)
+#     alpha_lon = np.linalg.solve(lhs, rhs_lon)
+    
+#     return alpha_lat, alpha_lon, t_u, t_v
 
 def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=1.0, max_lag=10, degree=3):
     N = len(lats)
