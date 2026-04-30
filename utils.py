@@ -15,9 +15,14 @@ import scipy.sparse as sp
 from scipy.interpolate import BSpline
 from sklearn.cluster import KMeans
 from sksparse.cholmod import cholesky
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning, message=".*Sparse CSR tensor support is in beta state.*")
+warnings.filterwarnings("ignore", message=".*The given NumPy array is not writable.*")
+warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.sparse_compressed_tensor.*")
 
 def _constr_spat_blk(da,blk_sz=10):
-    #da should be a single observation of the spatial process; blk_sz is the number of pixels/spots per block
+    #da should be a single observation of the spatial process; blk_sz is the side length
     lats = da.lat.values
     lons = da.lon.values
 
@@ -85,7 +90,7 @@ def _create_mask(da,n_clusters=80,blk_sz=10):
     #
     return mask, mask_ids, mask_centers
 
-def _gen_spat_da(sq_len,k=3):
+def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, nonstationary=True, mode='gradient'):
     unique_coords = np.arange(1, sq_len + 1)
     lon_grid, lat_grid = np.meshgrid(unique_coords, unique_coords)
     lat_flat = lat_grid.flatten()
@@ -100,15 +105,36 @@ def _gen_spat_da(sq_len,k=3):
             "lon": ("location", lon_flat)
         }
     )
-    phi=1e5
+    phi=1e0
     m = sq_len**2
-    Sigma = _compute_spat_cov_rs(da, phi=phi, length_scale=5, max_lag=20)
+
+    if nonstationary:
+        lats = da.lat.values
+        lons = da.lon.values
+        N = len(lats)
+        alpha_lat, alpha_lon, t_u, t_v = _gen_synth_spline(
+            lats, lons, num_interior_knots=5, mode=mode
+        )
+
+        Sigma = _construct_nonstat_cov(
+            lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=phi, max_lag=max_lag
+        )
+
+        B_u = BSpline.design_matrix(lats, t_u, 3).toarray()
+        B_v = BSpline.design_matrix(lons, t_v, 3).toarray()
+
+        B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, -1)
+        lam_lat = np.exp(B @ alpha_lat)
+        lam_lon = np.exp(B @ alpha_lon)
+
+    else:
+        Sigma = _compute_spat_cov_rs(da, phi=phi, length_scale=ls1, length_scale2=ls2, max_lag=max_lag)
     #
     _, U = torch.lobpcg(A=Sigma, k=k, largest=True)
     #
     sigma, L_diag = _optimize_log_prior(U, Sigma, phi, m, k)
     #
-    T_new = 500
+    T_new = n_samples
     #
     EZ = np.random.normal(size=(k, T_new))
     #
@@ -122,7 +148,7 @@ def _gen_spat_da(sq_len,k=3):
             'lat':da.lat
         }
     )
-    return sim_da
+    return sim_da,lam_lat,lam_lon
 
 def _optimize_log_prior(U, Sigma, phi, m, k):
     sigma = torch.tensor(1, dtype=torch.float32)
@@ -150,7 +176,7 @@ def _optimize_log_prior(U, Sigma, phi, m, k):
         optimizer.step()
     return sigma.detach().numpy(), L_diag.detach().numpy()
 
-def _compute_spat_cov_rs(da,phi=1, length_scale = 1, length_scale2 = -99, max_lag=1,taper=False):
+def _compute_spat_cov_rs(da,phi=1, length_scale = 1, length_scale2 = -99, max_lag=10,taper=False):
     cov = _construct_index_based_cov(
         da.lat.values, 
         da.lon.values, 
@@ -163,7 +189,7 @@ def _compute_spat_cov_rs(da,phi=1, length_scale = 1, length_scale2 = -99, max_la
     #
     return _convert_S_tensor(cov)
 
-def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, length_scale2=-99, max_lag=5,taper=False):
+def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, length_scale2=-99, max_lag=10,taper=False):
     N = len(lats)
     
     u_lats = np.unique(np.round(lats, 8))
@@ -324,7 +350,7 @@ def _cv_spatPCA(
     mask,
     k: int,
     phi = 1,
-    lr_s = 1e-3,
+    lr_s = 1e-1,
     lr_l = 1e-2,
     df = 1,
     sigma2_init_set = [1],
@@ -345,7 +371,7 @@ def _cv_spatPCA(
     #
     mask_ids = mask_ids[perm]
     #
-    Y_temp = torch.as_tensor(Y_da.values, dtype=torch.float32, device=perm.device)[perm]
+    Y_temp = torch.as_tensor(Y_da.values.copy(), dtype=torch.float32, device=perm.device)[perm]
     Y = Y_temp[0:m0,:]
     Yp = Y_temp[m0:,:] #only to be used for validation, not in training
     term1 = (Y**2).sum()
@@ -362,7 +388,7 @@ def _cv_spatPCA(
     sigma2 = (term1.numpy()/T - np.sum(Lams))/(m-k)
     L_approx = (Lams - sigma2)**0.5
     L_diag = torch.tensor(L_approx, dtype=torch.float32, requires_grad=True) 
-    print('INITIAL L: ',L_diag)
+    #print('INITIAL L: ',L_diag)
     sigma = torch.tensor(sigma2**0.5, dtype=torch.float32, requires_grad=True)
     #
     prev_ll = -torch.inf
@@ -380,11 +406,11 @@ def _cv_spatPCA(
         #
         # E-step
         with torch.no_grad():
-            print("starting E-step...")
+            #print("starting E-step...")
             #
             Uo = U[0:m0,:]
             M = (L_diag.unsqueeze(1)*Uo.T@Uo*L_diag.unsqueeze(0) + sigma2*torch.eye(k))
-            ch = torch.cholesky(M)
+            ch = torch.linalg.cholesky(M)
             M_inv = torch.cholesky_solve(torch.eye(k),ch)
             #
             Ez = M_inv @ (Uo * L_diag.unsqueeze(0)).T @ Y #Only used observed U's
@@ -393,10 +419,10 @@ def _cv_spatPCA(
             Upt = U[m0:,:].detach().clone()
             term12 = _comp_trEyp_yp(Y,U,L_diag,sigma2,M_inv,m,m0,T)
             #Ezyt = Ezz * L_diag.unsqueeze(0) @ Up_old.T #Do this in loss function to save memory
-            print("completed E-step...")
+            #print("completed E-step...")
             L_diag_t = L_diag.detach().clone()
             #
-            print("starting M-step U...")
+            #print("starting M-step U...")
             for jj in range(5):
                 U_old = U
                 G = torch.cat((sum_yz, (Upt*L_diag.unsqueeze(0))@Ezz),dim=0) * L_diag.unsqueeze(0) / sigma2 + SU * L_tilde.unsqueeze(0)
@@ -405,13 +431,13 @@ def _cv_spatPCA(
                 #SU = Sigma @ U
                 SU = (Sigma@U[reverse_perm,:])[perm,:]
                 if (abs(U - U_old)).sum() <1e-1:
-                    print("M-step U finished iteration: ",jj)
+                    #print("M-step U finished iteration: ",jj)
                     break
             
             Ut_Sigma_U = (U*SU).sum(dim=0)
             loss = _neg_lik_val(sigma, L_diag, U, L_diag_t, Ez, Ezz, m, T, Y, term1, term12, Upt, Ut_Sigma_U, trSigma, n, k, m0) #compute_negative_likelihood(sigma, L_diag)
             ls = loss.item()
-            print(f"Q after U M-step: {-ls:.5f}",f" Iteration: {iteration}")
+            #print(f"Q after U M-step: {-ls:.5f}",f" Iteration: {iteration}")
         #
         pls = float('inf')
         for i in range(100): # Allow more iterations since M-steps need to converge
@@ -421,11 +447,11 @@ def _cv_spatPCA(
             loss = _neg_lik_val(sigma, L_diag, U, L_diag_t, Ez, Ezz, m, T, Y, term1, term12, Upt, Ut_Sigma_U, trSigma, n, k, m0)
             ls = loss.item()
             if abs(pls - ls) / (abs(pls) + 1e-8) < 1e-5: 
-                if verb: 
-                    print(f"Prior loss {pls:.5f} and current loss {ls:.5f}")
-                    print(f"L_diag: {L_diag.detach().numpy()}")
-                    print(f"sigma: {sigma.detach().numpy():.5f}")
-                    print(f"M-Step for L and sigma converged at iter {i}")
+                #if verb: 
+                    #print(f"Prior loss {pls:.5f} and current loss {ls:.5f}")
+                    #print(f"L_diag: {L_diag.detach().numpy()}")
+                    #print(f"sigma: {sigma.detach().numpy():.5f}")
+                    #print(f"M-Step for L and sigma converged at iter {i}")
                 break
                 
             pls = ls
@@ -435,7 +461,7 @@ def _cv_spatPCA(
         sigma2 = sigma**2
         L_tilde = -(1/(L_diag**2 + sigma2) - 1/sigma2)
         #
-        print(f"Q: {-ls:.5f}",f" Iteration: {iteration}")
+        #print(f"Q: {-ls:.5f}",f" Iteration: {iteration}")
         if (abs(ls - prev_ll) < tol_em * abs(prev_ll)) and (iteration > 2):
             break
         prev_ll = ls        
@@ -530,7 +556,7 @@ def _comp_nll(Yp,Y,U,L_diag,sigma2,M_inv,m,m0,mask_ids):
     #
     return nlls,nll_tot
 
-def _fit_spline(da, data_array, gamma_u=1, gamma_v=1, num_interior_knots=30, degree=3):
+def _fit_spline(da, data_array, gamma_u=10, gamma_v=10, num_interior_knots=5, degree=3):
     #
     ls_lat = data_array[:, 0]
     ls_lon = data_array[:, 1]
@@ -585,7 +611,7 @@ def _fit_spline(da, data_array, gamma_u=1, gamma_v=1, num_interior_knots=30, deg
     
     return alpha_lat, alpha_lon, t_u, t_v
 
-def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=1.0, max_lag=5, degree=3):
+def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=1.0, max_lag=10, degree=3):
     N = len(lats)
         
     B_u = BSpline.design_matrix(lats, t_u, degree).toarray()
@@ -680,4 +706,71 @@ def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=
         full_cov = sp.diags(diag_vals, format='coo')
         
     return _convert_S_tensor(full_cov.tocsr())
+
+import numpy as np
+
+def _gen_synth_spline(lats, lons, num_interior_knots=5, degree=3, mode='gradient'):
+    """
+    Generates synthetic spline parameters (alpha_lat, alpha_lon, t_u, t_v)
+    to feed into the nonstationary covariance constructor.
+    """
+    # 1. Define boundaries based on the input data (with slight padding)
+    pad_lat = (np.max(lats) - np.min(lats)) * 0.01
+    pad_lon = (np.max(lons) - np.min(lons)) * 0.01
+    
+    domain_lat_min, domain_lat_max = np.min(lats) - pad_lat, np.max(lats) + pad_lat
+    domain_lon_min, domain_lon_max = np.min(lons) - pad_lon, np.max(lons) + pad_lon
+    
+    # 2. Construct knot vectors (t_u for latitude, t_v for longitude)
+    u_knots = np.linspace(domain_lat_min, domain_lat_max, num_interior_knots)
+    t_u = np.r_[[u_knots[0]] * degree, u_knots, [u_knots[-1]] * degree]
+    
+    v_knots = np.linspace(domain_lon_min, domain_lon_max, num_interior_knots)
+    t_v = np.r_[[v_knots[0]] * degree, v_knots, [v_knots[-1]] * degree]
+    
+    # Calculate the number of basis functions created by these knots
+    K_u = len(t_u) - degree - 1
+    K_v = len(t_v) - degree - 1
+    K_total = K_v * K_u  # Order matters here to match your einsum!
+    
+    # 3. Generate the alpha coefficients
+    # Recall that in your constructor: lam = exp(B @ alpha)
+    # Therefore, alpha is in log-space. An alpha of 0 -> length scale of 1.0. 
+    # An alpha of 1.6 -> length scale of ~5.0.
+    
+    if mode == 'gradient':
+        # Creates a smooth gradient where length scales get larger 
+        # as you move North and East.
+        
+        # Create a grid of values from 0.5 to 2.0 (length scales ~1.6 to ~7.3)
+        # We shape it (K_v, K_u) so that flattening it perfectly matches
+        # the (N, K_v, K_u) reshape in your einsum logic.
+        val_v, val_u = np.meshgrid(
+            np.linspace(0.5, 2.0, K_v), 
+            np.linspace(0.5, 2.0, K_u), 
+            indexing='ij'
+        )
+        
+        # Latitudinal length scales change based on latitude (u)
+        alpha_lat = val_u.flatten() 
+        # Longitudinal length scales change based on longitude (v)
+        alpha_lon = val_v.flatten() 
+        
+    elif mode == 'random':
+        # Creates a smooth but randomized nonstationary field
+        #np.random.seed(42)
+        # Centered around 1.0 (length scale ~2.7) with some variance
+        alpha_lat = np.random.normal(loc=1.0, scale=0.4, size=K_total)
+        alpha_lon = np.random.normal(loc=1.0, scale=0.4, size=K_total)
+        
+    elif mode == 'constant':
+        # Effectively turns your nonstationary model into a stationary one
+        # for baseline testing. (Length scale = exp(1.5) = 4.48 everywhere)
+        alpha_lat = np.full(K_total, 1.5)
+        alpha_lon = np.full(K_total, 1.5)
+        
+    else:
+        raise ValueError("mode must be 'gradient', 'random', or 'constant'")
+        
+    return alpha_lat, alpha_lon, t_u, t_v
 
