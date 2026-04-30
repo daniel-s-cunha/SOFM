@@ -73,14 +73,14 @@ class SpatialCovariance:
 	
 	def plot_holdout(self):
 		M_da = xr.DataArray(
-		    data=(self.holdout_!=0).numpy(),
+		    data=(self.holdout_!=0).numpy().astype(float),
 		    dims=('location'),
 		    coords={
 			        'location': self.data.location
 		    }
 		)
 		M_da = M_da.unstack()
-		M_da = M_da.sortby('lon','lat')
+		M_da = M_da.sortby(['lon','lat'])
 		M_da.plot(add_colorbar=False)
 		plt.show()
 
