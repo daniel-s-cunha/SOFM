@@ -557,7 +557,7 @@ def _comp_nll(Yp,Y,U,L_diag,sigma2,M_inv,m,m0,mask_ids):
     #
     return nlls,nll_tot
 
-def _fit_spline(da, data_array, gamma_u=5, gamma_v=5, num_interior_knots=10, gamma_grid=np.logspace(0, 4, 7), knot_grid=[5, 10, 15, 20], degree=3):
+def _fit_spline(da, data_array, gamma_u=5, gamma_v=5, num_interior_knots=10, gamma_grid=np.logspace(-1, 4, 7), knot_grid=[5, 10, 15, 20], degree=3):
     ls_lat = data_array[:, 0]
     ls_lon = data_array[:, 1]
     lats = data_array[:, 2]
