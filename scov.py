@@ -172,7 +172,7 @@ class SpatialCovariance:
 		
 		return (phi, loss_tot)
 
-	def fit(self, lss=[1,3,5,7,9], phis=[1e1,1e2,1e3,1e4,1e5]):			
+	def fit(self, lss=[1,3,5,7], phis=[1e1,1e2,1e3,1e4,1e5]):			
 		#
 		if self.nonstationary:
 			self._fit_nonstationary(lss,phis)
