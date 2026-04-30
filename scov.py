@@ -194,7 +194,7 @@ class SpatialCovariance:
 		# with threadpool_limits(limits=math_workers, user_api='blas'):
 		# 	with threadpool_limits(limits=math_workers, user_api='openmp'):
 		results = list(tqdm(
-			Parallel(n_jobs=workers, return_as='generator')(
+			Parallel(n_jobs=32, return_as='generator')(
 				delayed(self._evaluate_ls)(ls1, ls2, init_phi) 
 				for ls1, ls2 in ls_combinations
 			), 
