@@ -73,7 +73,7 @@ class SpatialCovariance:
 	
 	def plot_holdout(self):
 		M_da = xr.DataArray(
-		    data=(self.holdout_!=0),
+		    data=(self.holdout_!=0).numpy(),
 		    dims=('location'),
 		    coords={
 			        'location': self.data.location
