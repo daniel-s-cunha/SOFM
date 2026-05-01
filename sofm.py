@@ -12,7 +12,8 @@ class SOFM:
         nonstationary=True, 
         max_lag=30, 
         block_sz=5, 
-        n_blocks=20
+        n_blocks=20,
+        n_cores = -1
     ):
         self.spatcov_ = SpatialCovariance(
             data=data,
@@ -20,10 +21,12 @@ class SOFM:
             n_components=n_components,
             max_lag=max_lag,
             block_sz=block_sz,
-            n_blocks=n_blocks
+            n_blocks=n_blocks,
+            n_cores = n_cores
         )
         
         self.n_components = n_components
+        #
         self.U_ = None
         self.L_ = None
         self.Ez_ = None
@@ -36,14 +39,14 @@ class SOFM:
         
         Sigma = self.spatcov_.spatcov_
         phi = self.spatcov_.sill_
-        std_data = self.spatcov_.data
+        data = self.spatcov_.data
         
         print("")
         start_time = time.time()
-        print(f"[{time.strftime('%H:%M:%S')}] Fitting full model...")
+        print("Fitting full model...")
         
         U, L, Ez, sigma2, loss, = utils._spatPCA(
-            Y_da=std_data,
+            Y_da=data,
             Sigma=Sigma,
             k=self.n_components,
             phi=phi
@@ -53,6 +56,3 @@ class SOFM:
         self.L_ = L.detach()
         self.Ez_ = Ez
         self.sigma2_ = sigma2.detach()
-        
-        end_time = time.time()
-        print(f"[{time.strftime('%H:%M:%S')}] Final MAP Estimation complete in {end_time - start_time:.2f} seconds.")

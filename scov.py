@@ -26,13 +26,14 @@ from threadpoolctl import threadpool_limits
 
 class SpatialCovariance:
 
-	def __init__(self, data, nonstationary=True, n_components = 1, max_lag=30, block_sz = 5, n_blocks = 20):
+	def __init__(self, data, nonstationary=True, n_components = 1, max_lag=30, block_sz = 5, n_blocks = 20, n_cores = -1):
 		self.data = self._standardize_input(data)
 		self.nonstationary = nonstationary
 		self.max_lag = max_lag
 		self.block_sz = block_sz
 		self.n_blocks = n_blocks
 		self.n_components = n_components
+		self.n_cores = n_cores
 		#
 		self.holdout_ = None
 		self.holdout_centers_ = None
@@ -193,7 +194,7 @@ class SpatialCovariance:
 		# with threadpool_limits(limits=math_workers, user_api='blas'):
 		# 	with threadpool_limits(limits=math_workers, user_api='openmp'):
 		results = list(tqdm(
-			Parallel(n_jobs=-1, return_as='generator')(
+			Parallel(n_jobs=self.n_cores, return_as='generator')(
 				delayed(self._evaluate_ls)(ls1, ls2, init_phi) 
 				for ls1, ls2 in ls_combinations
 			), 
@@ -227,7 +228,7 @@ class SpatialCovariance:
 		#fit best phi for fixed ls
 		#		
 		results = list(tqdm(
-			Parallel(n_jobs=-1, return_as="generator")(
+			Parallel(n_jobs=self.n_cores, return_as="generator")(
 				delayed(self._evaluate_phi)(phi) 
 				for phi in phis
 			),
@@ -253,7 +254,7 @@ class SpatialCovariance:
 		init_phi = 1e5 
 		
 		results = list(tqdm(
-			Parallel(n_jobs=-1, return_as='generator')(
+			Parallel(n_jobs=self.n_cores, return_as='generator')(
 				delayed(self._evaluate_ls)(ls1, ls2, init_phi) 
 				for ls1, ls2 in ls_combinations
 			),
@@ -267,7 +268,7 @@ class SpatialCovariance:
 		#fit best phi for fixed ls
 		#		
 		results = list(tqdm(
-			Parallel(n_jobs=-1,return_as='generator')(
+			Parallel(n_jobs=self.n_cores,return_as='generator')(
 				delayed(self._evaluate_phi)(phi) 
 				for phi in phis
 			),
