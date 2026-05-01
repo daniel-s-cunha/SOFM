@@ -22,8 +22,8 @@ warnings.filterwarnings("ignore", category=UserWarning, message=".*Sparse CSR te
 warnings.filterwarnings("ignore", message=".*The given NumPy array is not writable.*")
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.sparse_compressed_tensor.*")
 
-def _constr_spat_blk(da,blk_sz=10):
-    #da should be a single observation of the spatial process; blk_sz is the side length
+def _constr_spat_blk(da,block_sz=10):
+    #da should be a single observation of the spatial process; block_sz is the side length
     lats = da.lat.values
     lons = da.lon.values
 
@@ -38,11 +38,11 @@ def _constr_spat_blk(da,blk_sz=10):
     if lat_descending:
         row_ranks = (len(unique_lats) - 1) - row_ranks
 
-    block_row = row_ranks // blk_sz
-    block_col = col_ranks // blk_sz
+    block_row = row_ranks // block_sz
+    block_col = col_ranks // block_sz
 
     n_unique_lons = len(unique_lons)
-    n_block_cols = (n_unique_lons // blk_sz) + 1
+    n_block_cols = (n_unique_lons // block_sz) + 1
 
     block_ids = block_row * n_block_cols + block_col
     #
@@ -56,9 +56,9 @@ def _constr_spat_blk(da,blk_sz=10):
     )
     return(final_mask)
 
-def _create_mask(da,n_clusters=80,blk_sz=10):
+def _create_mask(da,n_blocks=80,block_sz=10):
     #
-    spat_blk = _constr_spat_blk(da, blk_sz=blk_sz)
+    spat_blk = _constr_spat_blk(da, block_sz=block_sz)
     block_ids = spat_blk.values
     lats = da.lat.values
     lons = da.lon.values
@@ -76,7 +76,7 @@ def _create_mask(da,n_clusters=80,blk_sz=10):
     centers = np.array(centers)
     valid_uniq = np.array(valid_uniq)
     #
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    kmeans = KMeans(n_clusters=n_blocks, random_state=42, n_init=10)
     kmeans.fit(centers)
     centroids = kmeans.cluster_centers_
     #
@@ -149,7 +149,7 @@ def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, no
             'lat':da.lat
         }
     )
-    return sim_da,lam_lat,lam_lon
+    return sim_da,lam_lat,lam_lon, U, L_diag, sigma
 
 def _optimize_log_prior(U, Sigma, phi, m, k):
     sigma = torch.tensor(1, dtype=torch.float32)
@@ -168,7 +168,7 @@ def _optimize_log_prior(U, Sigma, phi, m, k):
         optimizer.zero_grad()
         sigma = torch.exp(log_sigma)
         L_diag = torch.exp(log_L_diag)
-        loss = -log_prior(sigma, L_diag, U, m, Ut_Sigma_U, trSigma, k) 
+        loss = -_log_prior(sigma, L_diag, U, m, Ut_Sigma_U, trSigma, k) 
         ls = loss.item()
         if abs(pls - ls) / (abs(pls) + 1e-8) < 1e-5: 
             break            
@@ -306,7 +306,7 @@ def _convert_S_tensor(scp_matrix):
     )    
     return torch_csr
 
-def log_prior(sigma, L_diag, U, m, Ut_Sigma_U, trSigma,k):
+def _log_prior(sigma, L_diag, U, m, Ut_Sigma_U, trSigma,k):
     #
     #
     sigma2 = sigma**2
@@ -344,6 +344,103 @@ def log_prior(sigma, L_diag, U, m, Ut_Sigma_U, trSigma,k):
     total = sum(terms.values())
     #
     return total/m
+
+def _spatPCA(
+    Y_da,
+    Sigma,
+    k: int,
+    phi = 1,
+    lr_s = 1e-1,
+    lr_l = 1e-2,
+    df = 1,
+    init_sigma = 1,
+    max_em_iter: int = 20,
+    tol_em: float = 1e-5,
+    verb = True
+):
+    #Setup
+    #
+    m = Y_da.shape[0]
+    T = Y_da.shape[1]
+    n = m+df
+    Y = torch.tensor(Y_da.values, dtype=torch.float32)
+    term1 = (Y**2).sum()
+    trSigma = torch.tensor(phi*m, dtype = torch.float32)
+    #
+    # 3) initialize
+    np.random.seed(42)
+    ULVT = randomized_svd(Y_da.values, n_components=k,n_iter=1)
+    U = torch.tensor(ULVT[0], dtype=torch.float32)
+    SU = Sigma@U
+    Lams = ULVT[1]**2/T
+    sigma2 = (term1.numpy()/T - np.sum(Lams))/(m-k)
+    L_approx = (Lams - sigma2)**0.5
+    L_diag = torch.tensor(L_approx, dtype=torch.float32, requires_grad=True) 
+    if sigma2<=0:
+        sigma2 = 0.001
+    sigma = torch.tensor(sigma2**0.5, dtype=torch.float32, requires_grad=True)
+    #
+    prev_ll = -torch.inf
+    #
+    sigma2 = sigma**2
+    L_tilde = -(1/(L_diag**2 + sigma2) - 1/sigma2) #torch.diag
+    #SU = Sigma @ U 
+    #
+    log_sigma = torch.nn.Parameter(torch.log(sigma.clone().detach()))
+    log_L_diag = torch.nn.Parameter(torch.log(L_diag.clone().detach()))
+    optimizer = torch.optim.Adam([log_sigma, log_L_diag], lr=lr_s)
+    #
+    for iteration in range(max_em_iter):        
+        #
+        # E-step
+        with torch.no_grad():
+            #
+            M = (L_diag**2 + sigma2)     #W.T @ W  +  sigma2 * torch.eye(k,dtype=torch.float32)
+            M_inv = torch.diag(1/M) #torch.linalg.inv(M)
+            #
+            Ez = M_inv @ (U * L_diag.unsqueeze(0)).T @ Y
+            Ezz = T * sigma2 * M_inv + Ez @ Ez.T 
+            sum_yz = Y @ Ez.T 
+            sum_zz = Ezz
+            #
+            #
+            for _ in range(5):
+                U_old = U
+                G = sum_yz * L_diag.unsqueeze(0) / sigma2  + SU * L_tilde.unsqueeze(0)
+                ULVT = torch.linalg.svd(G, full_matrices=False)
+                U = ULVT[0] @ ULVT[2]
+                SU = Sigma @ U
+                if (abs(U - U_old)).sum() <1e-1:
+                    break
+            Ut_Sigma_U = (U*SU).sum(dim=0)
+        #
+        #
+        #
+        pls = float('inf')
+        for i in range(100): # Allow more iterations since M-steps need to converge
+            optimizer.zero_grad()
+            sigma = torch.exp(log_sigma)
+            L_diag = torch.exp(log_L_diag)
+            loss = _neg_lik_samp(sigma, L_diag, U, Ez, Ezz, m, T, Y, term1, Ut_Sigma_U, trSigma, n, k) 
+            ls = loss.item()
+            if abs(pls - ls) / (abs(pls) + 1e-8) < 1e-5: 
+                break
+                
+            pls = ls
+            loss.backward()
+            optimizer.step()
+        sigma2 = sigma**2
+        L_tilde = -(1/(L_diag**2 + sigma2) - 1/sigma2)#torch.diag
+        #
+        if (abs(ls - prev_ll) < tol_em * abs(prev_ll)) and (iteration > 5):
+            break
+        prev_ll = ls        
+    #
+    #
+    L_diag, indices = torch.sort(L_diag, descending=True)
+    U = U[:, indices]
+    Ez = Ez[indices, :]
+    return U, L_diag, Ez, sigma2,ls
 
 def _cv_spatPCA(
     Y_da,
@@ -390,6 +487,8 @@ def _cv_spatPCA(
     L_approx = (Lams - sigma2)**0.5
     L_diag = torch.tensor(L_approx, dtype=torch.float32, requires_grad=True) 
     #print('INITIAL L: ',L_diag)
+    if sigma2<=0:
+        sigma2 = 0.001
     sigma = torch.tensor(sigma2**0.5, dtype=torch.float32, requires_grad=True)
     #
     prev_ll = -torch.inf
@@ -492,6 +591,59 @@ def _comp_trEyp_yp(Y,U,L_diag,sigma2,M_inv,m,m0,T):
     trEyp_yp = T*(t1 + t2) + t3
     #
     return trEyp_yp
+
+def _neg_lik_samp(sigma, L_diag, U, Ez, Ezz, m, T, Y, term1, Ut_Sigma_U, trSigma, n,k):
+    #
+    #
+    #sorted_L, indices = torch.sort(L_diag, descending=True)
+    #U_sorted = U[:, indices]
+    #Ez_sorted = Ez[indices, :]
+    #Ezz_sorted = Ezz[indices, :][:, indices]
+    #
+    #
+    sigma2 = sigma**2
+    L2 = L_diag**2
+    lambda_vals = 1.0 / (L2 + sigma2) # (L^2 + s^2)^-1
+    t1 = -T * (m / 2.0) * torch.log(sigma2)
+    #
+    UL = U * L_diag.unsqueeze(0)
+    trace_A = 2.0 * torch.sum((Y.t() @ UL) * Ez.t())
+    Ezz_diag = torch.diagonal(Ezz, dim1=-2, dim2=-1)
+    trace_B = torch.sum(Ezz_diag * L2.unsqueeze(0))
+    t2 = -0.5 * (1/sigma2) * (term1 - trace_A + trace_B)
+    #
+    inner_diag = -L2 / (sigma2 * (L2 + sigma2)) #lambda_vals - (1/sigma2)
+    tr_part1 = torch.sum(inner_diag * Ut_Sigma_U)
+    #FIXME: change tr_part2 to be 0 in the singular case
+    tr_part2 = (1/sigma2) * trSigma 
+    t3 = -0.5 * (tr_part1 + tr_part2)
+    #
+    lambda_sorted, _ = torch.sort(lambda_vals, descending=False)
+    diff_matrix = lambda_sorted.unsqueeze(0) - lambda_sorted.unsqueeze(1)
+    rows, cols = torch.triu_indices(k, k, offset=1)
+    t4 = torch.sum(torch.log(diff_matrix[rows, cols]))
+    #
+    #FIXME: singularWishart update
+    #t5 = torch.sum(torch.log((1/sigma2) - lambda_vals)) #
+    t5 = (m - k) * torch.sum(torch.log((1/sigma2) - lambda_vals))
+    #
+    #FIXME: singularWishart update
+    const_6 = (m - k)*(m - k - 1)/2.0 + 3.0#(n - m)*(m - k) +
+    t6 = -0.5 * const_6 * torch.log(sigma2)
+    #
+    const_7 = 3.0#(n - m) +
+    t7 = -0.5 * const_7 * torch.sum(torch.log(L2 + sigma2))
+    #
+    t8 = torch.sum(torch.log(torch.abs(L_diag)))
+    #
+    terms = {
+        't1': t1, 't2': t2, 't3': t3, 't4': t4, 
+        't5': t5, 't6': t6, 't7': t7, 't8': t8
+    }
+    #total = t1 + t2 + t3 + t4 + t5 + t6 + t7 + t8
+    total = sum(terms.values())
+    #
+    return -total/(T*m)
 
 def _neg_lik_val(sigma, L_diag, U, L_diag_t, Ez, Ezz, m, T, Y, term1, term12, Upt, Ut_Sigma_U, trSigma, n, k, m0):
     #

@@ -26,13 +26,12 @@ from threadpoolctl import threadpool_limits
 
 class SpatialCovariance:
 
-	def __init__(self, data, nonstationary=True,n_components = 1,rotation=True, max_lag=30, blk_sz = 5, n_clusters = 20):
+	def __init__(self, data, nonstationary=True, n_components = 1, max_lag=30, block_sz = 5, n_blocks = 20):
 		self.data = self._standardize_input(data)
 		self.nonstationary = nonstationary
-		self.rotation = rotation
 		self.max_lag = max_lag
-		self.blk_sz = blk_sz
-		self.n_clusters = n_clusters
+		self.block_sz = block_sz
+		self.n_blocks = n_blocks
 		self.n_components = n_components
 		#
 		self.holdout_ = None
@@ -67,7 +66,7 @@ class SpatialCovariance:
 
 	def generate_holdout(self):
 		#
-		self.holdout_, self.holdout_ids_, self.holdout_centers_ = utils._create_mask(self.data,n_clusters=self.n_clusters,blk_sz=self.blk_sz)
+		self.holdout_, self.holdout_ids_, self.holdout_centers_ = utils._create_mask(self.data,n_blocks=self.n_blocks,block_sz=self.block_sz)
 		#
 		#return self
 	
@@ -194,7 +193,7 @@ class SpatialCovariance:
 		# with threadpool_limits(limits=math_workers, user_api='blas'):
 		# 	with threadpool_limits(limits=math_workers, user_api='openmp'):
 		results = list(tqdm(
-			Parallel(n_jobs=32, return_as='generator')(
+			Parallel(n_jobs=-1, return_as='generator')(
 				delayed(self._evaluate_ls)(ls1, ls2, init_phi) 
 				for ls1, ls2 in ls_combinations
 			), 
