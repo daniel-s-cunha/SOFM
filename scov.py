@@ -43,6 +43,8 @@ class SpatialCovariance:
 		self.alpha_lon_ = None 
 		self.t_u_ = None
 		self.t_v_ = None
+		self.lam_lat_ = None
+		self.lam_lon_ = None
 		self.sill_ = None
 		self.ls1_ = None
 		self.ls2_ = None
@@ -91,23 +93,23 @@ class SpatialCovariance:
 				"The current model is initialized as stationary."
 			)
 
-		if not hasattr(self, 'alpha_lat_'):
+		if not hasattr(self, 'lam_lat_'):
 			raise ValueError("plot_nonstationary_spatcov can only be used after .fit() is completed.")
-		degree = 3
-		lats = self.data.lat.values #optimal_ls_array[:, 2]
-		lons = self.data.lon.values #optimal_ls_array[:, 3]
-		N = len(lats)
+		# degree = 3
+		# lats = self.data.lat.values #optimal_ls_array[:, 2]
+		# lons = self.data.lon.values #optimal_ls_array[:, 3]
+		# N = len(lats)
 
-		B_u = BSpline.design_matrix(lats, self.t_u_, degree).toarray()
-		B_v = BSpline.design_matrix(lons, self.t_v_, degree).toarray()
+		# B_u = BSpline.design_matrix(lats, self.t_u_, degree).toarray()
+		# B_v = BSpline.design_matrix(lons, self.t_v_, degree).toarray()
 
-		# Tensor product to get the 2D basis, then predict and exponentiate
-		B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, -1)
-		lam_lat = np.exp(B @ self.alpha_lat_)
-		lam_lon = np.exp(B @ self.alpha_lon_)
+		# # Tensor product to get the 2D basis, then predict and exponentiate
+		# B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, -1)
+		# lam_lat = np.exp(B @ self.alpha_lat_)
+		# lam_lon = np.exp(B @ self.alpha_lon_)
 
 		W_da = xr.DataArray(
-		    data=lam_lat,
+		    data=self.lam_lat_,
 		    dims=('location'),
 		    coords={
 		        'location': self.data.location
@@ -117,7 +119,7 @@ class SpatialCovariance:
 		W_da = W_da.sortby('lon','lat')
 
 		W_da2 = xr.DataArray(
-			data=lam_lon,
+			data=self.lam_lon_,
 			dims=('location'),
 			coords={
 				'location': self.data.location
@@ -172,7 +174,7 @@ class SpatialCovariance:
 		
 		return (phi, loss_tot)
 
-	def fit(self, lss=[1,3,5,7], phis=[1e1,1e2,1e3,1e4,1e5]):			
+	def fit(self, lss=[1,3,5,7], phis=[1e3,5e3,1e4,5e4,1e5]):
 		#
 		if self.nonstationary:
 			self._fit_nonstationary(lss,phis)
@@ -183,10 +185,8 @@ class SpatialCovariance:
 		#
 		#fit best ls for fixed init_phi
 		#
-		start_time = time.time()
-		print(f"[{time.strftime('%H:%M:%S')}] Initializing fit...")
 		ls_combinations = list(itertools.product(lss, lss))
-		init_phi = 1e7
+		init_phi = 1e5
 		# all_cores = 10
 		# workers = 5
 		# math_workers = all_cores // workers
@@ -199,7 +199,7 @@ class SpatialCovariance:
 				for ls1, ls2 in ls_combinations
 			), 
 			total=len(ls_combinations),
-			desc='Validating length scales for prior spatial covariance.'
+			desc='Validating length scales'
 		))
 
 		res_dict = {(res[0], res[1]): res[2] for res in results}
@@ -220,10 +220,10 @@ class SpatialCovariance:
 			final_results['mean_lat'].values,
 			final_results['mean_lon'].values
 		])
-		print("Fitting spline to the optimal length scales at held-out locations...")
+		print("Fitting spline to the optimal length scales...")
 		self.alpha_lat_, self.alpha_lon_, self.t_u_, self.t_v_ = utils._fit_spline(self.data,self.minimizer_)
 		#fit with variance=1 so you only have to run it once and can instead adjust it by multiplying phi
-		self.spatcov_ = utils._construct_nonstat_cov(self.data.lat.values, self.data.lon.values, self.alpha_lat_, self.alpha_lon_, self.t_u_, self.t_v_, variance=1, max_lag=self.max_lag)
+		self.spatcov_, self.lam_lat_, self.lam_lon_ = utils._construct_nonstat_cov(self.data.lat.values, self.data.lon.values, self.alpha_lat_, self.alpha_lon_, self.t_u_, self.t_v_, variance=1, max_lag=self.max_lag)
 		#
 		#fit best phi for fixed ls
 		#		
@@ -233,7 +233,7 @@ class SpatialCovariance:
 				for phi in phis
 			),
 			total = len(phis),
-			desc = 'Validating sill variance.'
+			desc = 'Validating sill'
 		))
 
 		# results = Parallel(n_jobs=-1)(
@@ -243,15 +243,13 @@ class SpatialCovariance:
 
 		self.sill_, _ = min(results, key=lambda x: x[1])
 		self.spatcov_ = self.sill_ * self.spatcov_
-		end_time = time.time()
-		print(f"[{time.strftime('%H:%M:%S')}] Fit complete in {end_time - start_time:.2f} seconds.")
 
 	def _fit_stationary(self, lss, phis):
 		#
 		#fit best ls for fixed init_phi
 		#
 		ls_combinations = list(itertools.product(lss, lss))
-		init_phi = 1e5 
+		init_phi = 1e5
 		
 		results = list(tqdm(
 			Parallel(n_jobs=self.n_cores, return_as='generator')(
@@ -259,7 +257,7 @@ class SpatialCovariance:
 				for ls1, ls2 in ls_combinations
 			),
 			total = len(ls_combinations),
-			desc = 'Validating length scales for prior spatial covariance.'
+			desc = 'Validating length scales'
 		))
 		
 		self.ls1_, self.ls2_, _ = min(results, key=lambda x: x[2])
@@ -273,7 +271,7 @@ class SpatialCovariance:
 				for phi in phis
 			),
 			total = len(phis),
-			desc = 'Validating sill variance.'
+			desc = 'Validating sill'
 		))
 
 		self.sill_, _ = min(results, key=lambda x: x[1])

@@ -11,7 +11,7 @@ import utils
 import sofm
 
 def run_synthetic_study():
-    sample_sizes = [200, 500, 1000, 5000, 10000]
+    sample_sizes = [200, 1000, 5000, 10000]
     n_replications = 20
     results = []
 
@@ -30,15 +30,16 @@ def run_synthetic_study():
                 sq_len=10, 
                 k=3, 
                 n_samples=n_samples, 
-                max_lag=30, 
+                max_lag=20, 
                 ls1=1, 
                 ls2=1, 
-                mode='gradient'
+                mode='gradient',
+                sigma = 5
             )
             
             # 2. Initialize and Fit Model
             # Note: Ensure block_sz matches your init parameter name (block_sz vs block_sz)
-            mod = sofm.SOFM(da, n_components=3, nonstationary=True, block_sz=1, n_blocks=20)
+            mod = sofm.SOFM(da, n_components=3, nonstationary=True, block_sz=1, n_blocks=40)
             mod.fit()
             
             # 3. Calculate Loss for U (Accounting for Sign Ambiguity)

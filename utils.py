@@ -92,7 +92,7 @@ def _create_mask(da,n_blocks=80,block_sz=10):
     #
     return mask, mask_ids, mask_centers
 
-def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, nonstationary=True, mode='gradient'):
+def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, nonstationary=True, mode='gradient', sigma=-1):
     unique_coords = np.arange(1, sq_len + 1)
     lon_grid, lat_grid = np.meshgrid(unique_coords, unique_coords)
     lat_flat = lat_grid.flatten()
@@ -118,23 +118,19 @@ def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, no
             lats, lons, num_interior_knots=5, mode=mode
         )
 
-        Sigma = _construct_nonstat_cov(
+        Sigma,lam_lat,lam_lon = _construct_nonstat_cov(
             lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=phi, max_lag=max_lag
         )
-
-        B_u = BSpline.design_matrix(lats, t_u, 3).toarray()
-        B_v = BSpline.design_matrix(lons, t_v, 3).toarray()
-
-        B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, -1)
-        lam_lat = np.exp(B @ alpha_lat)
-        lam_lon = np.exp(B @ alpha_lon)
 
     else:
         Sigma = _compute_spat_cov_rs(da, phi=phi, length_scale=ls1, length_scale2=ls2, max_lag=max_lag)
     #
     _, U = torch.lobpcg(A=Sigma, k=k, largest=True)
     #
-    sigma, L_diag = _optimize_log_prior(U, Sigma, phi, m, k)
+    if sigma == -1:
+        sigma, L_diag = _optimize_log_prior(U, Sigma, phi, m, k)
+    else:
+        _, L_diag = _optimize_log_prior(U, Sigma, phi, m, k)
     #
     T_new = n_samples
     #
@@ -710,7 +706,7 @@ def _comp_nll(Yp,Y,U,L_diag,sigma2,M_inv,m,m0,mask_ids):
     #
     return nlls,nll_tot
 
-def _fit_spline(da, data_array, gamma_u=5, gamma_v=5, num_interior_knots=10, gamma_grid=np.linspace(5, 15, 5), knot_grid=[30], degree=3):
+def _fit_spline(da, data_array, gamma_grid=np.logspace(0, 3, 15), knot_grid=[10], degree=3):
     ls_lat = data_array[:, 0]
     ls_lon = data_array[:, 1]
     lats = data_array[:, 2]
@@ -736,7 +732,7 @@ def _fit_spline(da, data_array, gamma_u=5, gamma_v=5, num_interior_knots=10, gam
     best_t_u = None
     best_t_v = None
 
-    # Outer loop: Number of knots (Expensive basis creation)
+    # Outer loop: Number of knots
     for num_knots in knot_grid:
         u_knots = np.linspace(domain_lat_min, domain_lat_max, num_knots)
         t_u = np.r_[[u_knots[0]] * degree, u_knots, [u_knots[-1]] * degree]
@@ -766,18 +762,22 @@ def _fit_spline(da, data_array, gamma_u=5, gamma_v=5, num_interior_knots=10, gam
         rhs_lat = B.T @ y_lat
         rhs_lon = B.T @ y_lon
 
-        # Inner loop: Smoothing parameters (Fast matrix inversion)
+        # Inner loop: Smoothing parameters
         for g_u, g_v in itertools.product(gamma_grid, gamma_grid):
             lhs = BtB + g_u * P_u + g_v * P_v
             
             try:
-                # Invert LHS once per gamma combination
-                lhs_inv = np.linalg.inv(lhs)
+                # FIX 2: Use linear solve instead of explicit inversion.
+                # Solves LHS * H = BtB --> H = LHS^-1 * BtB
+                # The trace of H is the exact Effective Degrees of Freedom
+                H_core = np.linalg.solve(lhs, BtB)
+                edf = np.trace(H_core)
+                
+                # Get the alpha coefficients
+                alpha_lat = np.linalg.solve(lhs, rhs_lat)
+                alpha_lon = np.linalg.solve(lhs, rhs_lon)
             except np.linalg.LinAlgError:
-                continue # Skip if singular
-            
-            alpha_lat = lhs_inv @ rhs_lat
-            alpha_lon = lhs_inv @ rhs_lon
+                continue 
             
             y_hat_lat = B @ alpha_lat
             y_hat_lon = B @ alpha_lon
@@ -785,18 +785,19 @@ def _fit_spline(da, data_array, gamma_u=5, gamma_v=5, num_interior_knots=10, gam
             sse_lat = np.sum((y_lat - y_hat_lat)**2)
             sse_lon = np.sum((y_lon - y_hat_lon)**2)
             
-            # Fast calculation of trace(lhs_inv @ BtB) using element-wise product
-            edf = np.sum(lhs_inv * BtB.T)
+            # FIX 3: GCV Inflation factor to aggressively penalize undersmoothing
+            inflation_factor = 1.4
+            effective_N_penalty = inflation_factor * edf
             
-            denom = (1 - edf / N)**2
-            
-            if denom <= 0:
+            # Guard against the squared denominator flipping negative values to positive
+            if effective_N_penalty >= N:
                 continue
                 
+            denom = (1 - effective_N_penalty / N)**2
+            
             gcv_lat = (sse_lat / N) / denom
             gcv_lon = (sse_lon / N) / denom
             
-            # Minimize the combined GCV of both latitudinal and longitudinal length scales
             total_gcv = gcv_lat + gcv_lon
             
             if total_gcv < best_gcv:
@@ -807,9 +808,110 @@ def _fit_spline(da, data_array, gamma_u=5, gamma_v=5, num_interior_knots=10, gam
                 best_t_u = t_u
                 best_t_v = t_v
 
-    print(f"Optimal Spline GCV: {best_gcv:.4f} | ", f"Knots: {best_params[2]} | ", f"gamma_u: {best_params[0]:.2e} | ", f"gamma_v: {best_params[1]:.2e}")
+    print(f"Optimal Spline GCV: {best_gcv:.4f} | Knots: {best_params[2]} | gamma_u: {best_params[0]:.2e} | gamma_v: {best_params[1]:.2e}")
 
     return best_alpha_lat, best_alpha_lon, best_t_u, best_t_v
+
+# def _fit_spline(da, data_array, gamma_u=5, gamma_v=5, num_interior_knots=10, gamma_grid=np.logspace(-1, 5, 15), knot_grid=[5], degree=3):
+#     ls_lat = data_array[:, 0]
+#     ls_lon = data_array[:, 1]
+#     lats = data_array[:, 2]
+#     lons = data_array[:, 3]
+#     domain_lats = da.lat.values
+#     domain_lons = da.lon.values
+    
+#     y_lat = np.log(ls_lat)
+#     y_lon = np.log(ls_lon)
+    
+#     N = len(lats)
+    
+#     pad_lat = (np.max(domain_lats) - np.min(domain_lats)) * 0.01
+#     pad_lon = (np.max(domain_lons) - np.min(domain_lons)) * 0.01
+    
+#     domain_lat_min, domain_lat_max = np.min(domain_lats) - pad_lat, np.max(domain_lats) + pad_lat
+#     domain_lon_min, domain_lon_max = np.min(domain_lons) - pad_lon, np.max(domain_lons) + pad_lon
+
+#     best_gcv = np.inf
+#     best_params = None
+#     best_alpha_lat = None
+#     best_alpha_lon = None
+#     best_t_u = None
+#     best_t_v = None
+
+#     # Outer loop: Number of knots (Expensive basis creation)
+#     for num_knots in knot_grid:
+#         u_knots = np.linspace(domain_lat_min, domain_lat_max, num_knots)
+#         t_u = np.r_[[u_knots[0]] * degree, u_knots, [u_knots[-1]] * degree]
+        
+#         v_knots = np.linspace(domain_lon_min, domain_lon_max, num_knots)
+#         t_v = np.r_[[v_knots[0]] * degree, v_knots, [v_knots[-1]] * degree]
+        
+#         B_u = BSpline.design_matrix(lats, t_u, degree).toarray()
+#         B_v = BSpline.design_matrix(lons, t_v, degree).toarray()
+        
+#         K_u = B_u.shape[1]
+#         K_v = B_v.shape[1]
+#         K_total = K_u * K_v
+        
+#         B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, K_total)
+        
+#         D_u = np.diff(np.eye(K_u), n=2, axis=0)
+#         D_v = np.diff(np.eye(K_v), n=2, axis=0)
+        
+#         Du_T_Du = D_u.T @ D_u
+#         Dv_T_Dv = D_v.T @ D_v
+        
+#         P_u = np.kron(np.eye(K_v), Du_T_Du)
+#         P_v = np.kron(Dv_T_Dv, np.eye(K_u))
+        
+#         BtB = B.T @ B
+#         rhs_lat = B.T @ y_lat
+#         rhs_lon = B.T @ y_lon
+
+#         # Inner loop: Smoothing parameters (Fast matrix inversion)
+#         for g_u, g_v in itertools.product(gamma_grid, gamma_grid):
+#             lhs = BtB + g_u * P_u + g_v * P_v
+            
+#             try:
+#                 # Invert LHS once per gamma combination
+#                 lhs_inv = np.linalg.inv(lhs)
+#             except np.linalg.LinAlgError:
+#                 continue # Skip if singular
+            
+#             alpha_lat = lhs_inv @ rhs_lat
+#             alpha_lon = lhs_inv @ rhs_lon
+            
+#             y_hat_lat = B @ alpha_lat
+#             y_hat_lon = B @ alpha_lon
+            
+#             sse_lat = np.sum((y_lat - y_hat_lat)**2)
+#             sse_lon = np.sum((y_lon - y_hat_lon)**2)
+            
+#             # Fast calculation of trace(lhs_inv @ BtB) using element-wise product
+#             edf = np.sum(lhs_inv * BtB.T)
+            
+#             denom = (1 - edf / N)**2
+            
+#             if denom <= 0:
+#                 continue
+                
+#             gcv_lat = (sse_lat / N) / denom
+#             gcv_lon = (sse_lon / N) / denom
+            
+#             # Minimize the combined GCV of both latitudinal and longitudinal length scales
+#             total_gcv = gcv_lat + gcv_lon
+            
+#             if total_gcv < best_gcv:
+#                 best_gcv = total_gcv
+#                 best_params = (g_u, g_v, num_knots)
+#                 best_alpha_lat = alpha_lat
+#                 best_alpha_lon = alpha_lon
+#                 best_t_u = t_u
+#                 best_t_v = t_v
+
+#     print(f"Optimal Spline GCV: {best_gcv:.4f} | ", f"Knots: {best_params[2]} | ", f"gamma_u: {best_params[0]:.2e} | ", f"gamma_v: {best_params[1]:.2e}")
+
+#     return best_alpha_lat, best_alpha_lon, best_t_u, best_t_v
 
 # def _fit_spline(da, data_array, gamma_u=5, gamma_v=5, num_interior_knots=10, degree=3):
 #     #
@@ -960,9 +1062,7 @@ def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=
     else:
         full_cov = sp.diags(diag_vals, format='coo')
         
-    return _convert_S_tensor(full_cov.tocsr())
-
-import numpy as np
+    return _convert_S_tensor(full_cov.tocsr()),lam_lat,lam_lon
 
 def _gen_synth_spline(lats, lons, num_interior_knots=5, degree=3, mode='gradient'):
     """
