@@ -1043,8 +1043,9 @@ def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=
             
             Q_uv = ((lats[u] - lats[v])**2 / avg_var_lat) + ((lons[u] - lons[v])**2 / avg_var_lon)
             
-            vals = variance * S_uv * np.exp(-0.5 * Q_uv)
-            
+            #vals = variance * S_uv * np.exp(-0.5 * Q_uv)
+            vals = variance * S_uv * (1 - Q_uv) * np.exp(-0.5 * Q_uv)
+
             rows_out.append(u)
             cols_out.append(v)
             data_out.append(vals)
