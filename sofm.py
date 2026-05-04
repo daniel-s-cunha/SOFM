@@ -32,7 +32,7 @@ class SOFM:
         self.Ez_ = None
         self.sigma2_ = None
 
-    def fit(self, lss=[0.5, 1, 3, 5], phis=[1e2,5e2,1e3,5e3,1e4,5e4,1e5]):
+    def fit(self, lss=[4,12,20,28], phis=[1e2,5e2,1e3,5e3,1e4,5e4,1e5]):
         #
         start_time = time.time()
         print(f"[{time.strftime('%H:%M:%S')}] Estimating prior spatial covariance...")
