@@ -1,3 +1,4 @@
+from sklearn.neighbors import kneighbors_graph
 import sympy.printing
 import itertools
 import xarray as xr
@@ -1043,8 +1044,8 @@ def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=
             
             Q_uv = ((lats[u] - lats[v])**2 / avg_var_lat) + ((lons[u] - lons[v])**2 / avg_var_lon)
             
-            #vals = variance * S_uv * np.exp(-0.5 * Q_uv)
-            vals = variance * S_uv * (1 - Q_uv) * np.exp(-0.5 * Q_uv)
+            vals = variance * S_uv * np.exp(-0.5 * Q_uv)
+            #vals = variance * S_uv * (1 - Q_uv) * np.exp(-0.5 * Q_uv)
 
             rows_out.append(u)
             cols_out.append(v)
@@ -1130,3 +1131,74 @@ def _gen_synth_spline(lats, lons, num_interior_knots=5, degree=3, mode='gradient
         
     return alpha_lat, alpha_lon, t_u, t_v
 
+
+def _construct_omega_matrix(da, k_pos=6, k_neg=15, lambda_neg=1.0, random_state=2):
+    """
+    Constructs the contrastive graph matrix Omega = A^+ - lambda * A^-
+    for Spectral Contrastive Loss optimization.
+    
+    Parameters:
+    -----------
+    da : xr.DataArray
+        The spatial DataArray with a 'location' MultiIndex (lat, lon).
+    k_pos : int
+        Number of spatial neighbors to define as positive pairs. 
+        (Typically 6 for Visium hexagonal grids, 4 for square grids).
+    k_neg : int
+        Number of randomly sampled distant spots to define as negative pairs per spot.
+    lambda_neg : float
+        The penalty weight for negative pairs.
+        
+    Returns:
+    --------
+    Omega_csr : scipy.sparse.csr_matrix
+        The final contrastive matrix.
+    A_pos_csr : scipy.sparse.csr_matrix
+        The positive adjacency matrix.
+    A_neg_csr : scipy.sparse.csr_matrix
+        The negative adjacency matrix.
+    """
+    # 1. Extract coordinates from the standardized xarray MultiIndex
+    lats = da.coords['lat'].values
+    lons = da.coords['lon'].values
+    coords = np.column_stack((lats, lons))
+    N = len(coords)
+    
+    # 2. Construct the Positive Adjacency Matrix (A+)
+    # We use KNN to find direct spatial neighbors. include_self=False ensures 
+    # we don't try to contrast a spot with itself.
+    A_pos = kneighbors_graph(coords, n_neighbors=k_pos, mode='connectivity', include_self=False)
+    
+    # Make A+ symmetric (if i is a neighbor of j, j is a neighbor of i)
+    A_pos = A_pos.maximum(A_pos.T).tocsr()
+    
+    # 3. Construct the Negative Adjacency Matrix (A-) via Negative Sampling
+    np.random.seed(random_state)
+    
+    # Repeat each spot index k_neg times
+    row_indices = np.repeat(np.arange(N), k_neg)
+    # Randomly select k_neg distant targets for each spot
+    col_indices = np.random.randint(0, N, size=N * k_neg)
+    
+    # Filter out self-loops immediately
+    valid_mask = (row_indices != col_indices)
+    row_indices = row_indices[valid_mask]
+    col_indices = col_indices[valid_mask]
+    
+    # Build the initial sparse negative matrix
+    data_neg = np.ones(len(row_indices))
+    A_neg = sp.coo_matrix((data_neg, (row_indices, col_indices)), shape=(N, N)).tocsr()
+    
+    # Make A- symmetric 
+    A_neg = A_neg.maximum(A_neg.T)
+    
+    # 4. Clean Overlaps
+    # Ensure no negative edges accidentally overlap with positive edges.
+    # We do this quickly by element-wise multiplying A_neg by A_pos and subtracting the intersection.
+    overlap = A_neg.multiply(A_pos)
+    A_neg = A_neg - overlap
+    
+    # 5. Construct Omega = A+ - lambda * A-
+    Omega = A_pos - lambda_neg * A_neg
+    
+    return _convert_S_tensor(Omega.tocsr())

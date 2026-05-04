@@ -32,7 +32,7 @@ class SOFM:
         self.Ez_ = None
         self.sigma2_ = None
 
-    def fit(self, lss=[4,12,20,28], phis=[1e2,5e2,1e3,5e3,1e4,5e4,1e5]):
+    def fit(self, lss=[1,4,12,20,28], phis=[1e2,5e2,1e3,5e3,1e4,5e4,1e5]):
         #
         start_time = time.time()
         print(f"[{time.strftime('%H:%M:%S')}] Estimating prior spatial covariance...")
@@ -47,6 +47,24 @@ class SOFM:
         U, L, Ez, sigma2, loss, = utils._spatPCA(
             Y_da=data,
             Sigma=Sigma,
+            k=self.n_components,
+            phi=phi
+        )
+        end_time = time.time()
+        print(f"[{time.strftime('%H:%M:%S')}] Fit complete in {end_time - start_time:.2f} seconds.")
+        self.U_ = U
+        self.L_ = L.detach()
+        self.Ez_ = Ez
+        self.sigma2_ = sigma2.detach()
+
+    def fit_contrast(self,phi = 1e3,lambda_neg=1):
+        print("Fitting...")
+        start_time = time.time()
+        data = self.spatcov_.data
+        Omega = utils._construct_omega_matrix(data,lambda_neg = lambda_neg)
+        U, L, Ez, sigma2, loss, = utils._spatPCA(
+            Y_da=data,
+            Sigma=phi*Omega,
             k=self.n_components,
             phi=phi
         )
