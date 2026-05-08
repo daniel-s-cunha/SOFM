@@ -803,7 +803,7 @@ def _comp_nll(Yp,Y,U,L_diag,sigma2,M_inv,m,m0,mask_ids):
     #
     return nlls,nll_tot
 
-def _fit_spline(da, data_array, gamma_grid=np.logspace(-1, 3, 15), knot_grid=[5], degree=3):
+def _fit_spline(da, data_array, gamma_grid=np.logspace(-1, 3, 15), knot_grid=[10], degree=3):
     ls_lat = data_array[:, 0]
     ls_lon = data_array[:, 1]
     rot_hat = data_array[:, 2]
