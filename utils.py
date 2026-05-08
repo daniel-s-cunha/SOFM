@@ -120,7 +120,7 @@ def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, no
         )
         alpha_rot = alpha_lat/4 #this should yield rotations less than pi/4 ~= np.log(5)/4
 
-        Sigma,lam_lat,lam_lon = _construct_nonstat_cov(
+        Sigma,lam_lat,lam_lon,rot = _construct_nonstat_cov(
             lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v, variance=phi, max_lag=max_lag
         )
 
@@ -148,7 +148,7 @@ def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, no
             'lat':da.lat
         }
     )
-    return sim_da,lam_lat,lam_lon, U, L_diag, sigma
+    return sim_da, lam_lat, lam_lon, rot, U, L_diag, sigma
 
 def _optimize_log_prior(U, Sigma, phi, m, k):
     sigma = torch.tensor(1, dtype=torch.float32)
