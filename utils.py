@@ -93,7 +93,7 @@ def _create_mask(da,n_blocks=80,block_sz=10):
     #
     return mask, mask_ids, mask_centers
 
-def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, nonstationary=True, mode='gradient', sigma=-1):
+def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, nonstationary=True, mode='gradient', sigma=1):
     unique_coords = np.arange(1, sq_len + 1)
     lon_grid, lat_grid = np.meshgrid(unique_coords, unique_coords)
     lat_flat = lat_grid.flatten()
