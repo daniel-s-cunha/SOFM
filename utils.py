@@ -118,13 +118,14 @@ def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, no
         alpha_lat, alpha_lon, t_u, t_v = _gen_synth_spline(
             lats, lons, num_interior_knots=5, mode=mode
         )
+        alpha_rot = alpha_lat/4 #this should yield rotations less than pi/4 ~= np.log(5)/4
 
         Sigma,lam_lat,lam_lon = _construct_nonstat_cov(
-            lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=phi, max_lag=max_lag
+            lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v, variance=phi, max_lag=max_lag
         )
 
     else:
-        Sigma = _compute_spat_cov_rs(da, phi=phi, length_scale=ls1, length_scale2=ls2, max_lag=max_lag)
+        Sigma = _compute_spat_cov_rs(da, phi=phi, length_scale=ls1, length_scale2=ls2, rot=0, max_lag=max_lag)
     #
     _, U = torch.lobpcg(A=Sigma, k=k, largest=True)
     #
@@ -175,20 +176,21 @@ def _optimize_log_prior(U, Sigma, phi, m, k):
         optimizer.step()
     return sigma.detach().numpy(), L_diag.detach().numpy()
 
-def _compute_spat_cov_rs(da,phi=1, length_scale = 1, length_scale2 = -99, max_lag=10,taper=False):
+def _compute_spat_cov_rs(da,phi=1, length_scale = 1, length_scale2 = -99, rot=0, max_lag=10):
     cov = _construct_index_based_cov(
         da.lat.values, 
         da.lon.values, 
         variance=phi,
         length_scale = length_scale,
         length_scale2 = length_scale2,
-        max_lag=max_lag,
-        taper=taper
+        rot = rot,
+        max_lag=max_lag
     )
     #
     return _convert_S_tensor(cov)
 
-def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, length_scale2=-99, max_lag=10,taper=False):
+
+def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, length_scale2=-99, rot=0, max_lag=10):
     N = len(lats)
     
     u_lats = np.unique(np.round(lats, 8))
@@ -214,11 +216,17 @@ def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, leng
     lat_step = np.min(np.diff(u_lats))
     lon_step = np.min(np.diff(u_lons))        
     min_step = min(lat_step, lon_step)
-
-    if length_scale2==-99:
-        beta = min_step*max_lag
-    else:
-        beta = np.sqrt((lat_step*max_lag)**2/length_scale + (lon_step*max_lag)**2/length_scale2)
+    
+    # --- Precompute Stationary Anisotropic Rotation Coefficients ---
+    if length_scale2 != -99:
+        c = np.cos(rot)
+        s = np.sin(rot)
+        l1_sq = 2 * length_scale**2
+        l2_sq = 2 * length_scale2**2
+        
+        A = (c**2 / l1_sq) + (s**2 / l2_sq)
+        B = (s**2 / l1_sq) + (c**2 / l2_sq)
+        C = c * s * (1 / l1_sq - 1 / l2_sq)
     
     for dr in range(-max_lag, max_lag + 1):
         for dc in range(-max_lag, max_lag + 1):
@@ -247,7 +255,6 @@ def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, leng
             dst = grid_map[r_dst_start:r_dst_end, c_dst_start:c_dst_end].ravel()
             
             mask = (src != -1) & (dst != -1)
-            
             mask &= (src < dst)
             
             if not mask.any():
@@ -255,19 +262,19 @@ def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, leng
                 
             u = src[mask]
             v = dst[mask]
-            if length_scale2==-99:
-                d_sq = (lats[u] - lats[v])**2 + (lons[u] - lons[v])**2                
-                vals = variance * np.exp(-d_sq / (2*length_scale**2))
-                if taper:
-                    tap = np.maximum(0, 1 - d_sq**0.5 / beta)**4 * (1 + 4 * d_sq**0.5 / beta)
-                    vals = vals*tap
+            
+            dx = lats[u] - lats[v]
+            dy = lons[u] - lons[v]
+            
+            if length_scale2 == -99:
+                # Isotropic (rotation has no effect)
+                d_sq = (dx**2 + dy**2) / (2 * length_scale**2)
+                vals = variance * np.exp(-d_sq)
             else:
-                #anisotropic
-                d_sq = (lats[u] - lats[v])**2 / (2*length_scale**2) + (lons[u] - lons[v])**2 / (2*length_scale2**2)
+                # Anisotropic with rotation
+                d_sq = A * dx**2 + B * dy**2 + 2 * C * dx * dy
                 vals = variance * np.exp(-d_sq) 
-                if taper:
-                    tap = np.maximum(0, 1 - d_sq**0.5 / beta)**4 * (1 + 4 * d_sq**0.5 / beta)
-                    vals = vals*tap
+                
             rows_out.append(u)
             cols_out.append(v)
             data_out.append(vals)
@@ -286,6 +293,95 @@ def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, leng
         full_cov = sp.diags(diag_vals, format='coo')
         
     return full_cov.tocsr()
+
+# def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, length_scale2=-99, rot = 0, max_lag=10):
+#     N = len(lats)
+    
+#     u_lats = np.unique(np.round(lats, 8))
+#     u_lons = np.unique(np.round(lons, 8))
+    
+#     n_rows = len(u_lats)
+#     n_cols = len(u_lons)
+    
+#     row_indices = np.searchsorted(u_lats, np.round(lats, 8))
+#     col_indices = np.searchsorted(u_lons, np.round(lons, 8))
+    
+#     grid_map = np.full((n_rows, n_cols), -1, dtype=np.int32)
+#     grid_map[row_indices, col_indices] = np.arange(N)
+
+#     rows_out = []
+#     cols_out = []
+#     data_out = []
+    
+#     rows_out.append(np.arange(N))
+#     cols_out.append(np.arange(N))
+#     data_out.append(np.full(N, variance))
+
+#     lat_step = np.min(np.diff(u_lats))
+#     lon_step = np.min(np.diff(u_lons))        
+#     min_step = min(lat_step, lon_step)
+    
+#     for dr in range(-max_lag, max_lag + 1):
+#         for dc in range(-max_lag, max_lag + 1):
+#             if dr == 0 and dc == 0: 
+#                 continue 
+
+#             if dr >= 0:
+#                 r_src_start, r_src_end = 0, n_rows - dr
+#                 r_dst_start, r_dst_end = dr, n_rows
+#             else:
+#                 r_src_start, r_src_end = -dr, n_rows
+#                 r_dst_start, r_dst_end = 0, n_rows + dr
+                
+#             if dc >= 0:
+#                 c_src_start, c_src_end = 0, n_cols - dc
+#                 c_dst_start, c_dst_end = dc, n_cols
+#             else:
+#                 c_src_start, c_src_end = -dc, n_cols
+#                 c_dst_start, c_dst_end = 0, n_cols + dc
+            
+#             # If shift is larger than grid, skip
+#             if r_src_end <= r_src_start or c_src_end <= c_src_start:
+#                 continue
+
+#             src = grid_map[r_src_start:r_src_end, c_src_start:c_src_end].ravel()
+#             dst = grid_map[r_dst_start:r_dst_end, c_dst_start:c_dst_end].ravel()
+            
+#             mask = (src != -1) & (dst != -1)
+            
+#             mask &= (src < dst)
+            
+#             if not mask.any():
+#                 continue
+                
+#             u = src[mask]
+#             v = dst[mask]
+#             if length_scale2==-99:
+#                 #isotropic
+#                 d_sq = (lats[u] - lats[v])**2 + (lons[u] - lons[v])**2                
+#                 vals = variance * np.exp(-d_sq / (2*length_scale**2))
+#             else:
+#                 #anisotropic
+#                 d_sq = (lats[u] - lats[v])**2 / (2*length_scale**2) + (lons[u] - lons[v])**2 / (2*length_scale2**2)
+#                 vals = variance * np.exp(-d_sq) 
+#             rows_out.append(u)
+#             cols_out.append(v)
+#             data_out.append(vals)
+
+#     diag_vals = data_out[0]
+    
+#     if len(rows_out) > 1:
+#         off_rows = np.concatenate(rows_out[1:])
+#         off_cols = np.concatenate(cols_out[1:])
+#         off_vals = np.concatenate(data_out[1:])
+        
+#         tri = sp.coo_matrix((off_vals, (off_rows, off_cols)), shape=(N, N))
+        
+#         full_cov = tri + tri.T + sp.diags(diag_vals, format='coo')
+#     else:
+#         full_cov = sp.diags(diag_vals, format='coo')
+        
+#     return full_cov.tocsr()
 
 def _convert_S_tensor(scp_matrix):
     data = scp_matrix.data
@@ -707,16 +803,18 @@ def _comp_nll(Yp,Y,U,L_diag,sigma2,M_inv,m,m0,mask_ids):
     #
     return nlls,nll_tot
 
-def _fit_spline(da, data_array, gamma_grid=np.logspace(0, 3, 15), knot_grid=[10], degree=3):
+def _fit_spline(da, data_array, gamma_grid=np.logspace(-1, 3, 15), knot_grid=[5], degree=3):
     ls_lat = data_array[:, 0]
     ls_lon = data_array[:, 1]
-    lats = data_array[:, 2]
-    lons = data_array[:, 3]
+    rot_hat = data_array[:, 2]
+    lats = data_array[:, 3]
+    lons = data_array[:, 4]
     domain_lats = da.lat.values
     domain_lons = da.lon.values
     
     y_lat = np.log(ls_lat)
     y_lon = np.log(ls_lon)
+    y_rot = rot_hat
     
     N = len(lats)
     
@@ -726,10 +824,13 @@ def _fit_spline(da, data_array, gamma_grid=np.logspace(0, 3, 15), knot_grid=[10]
     domain_lat_min, domain_lat_max = np.min(domain_lats) - pad_lat, np.max(domain_lats) + pad_lat
     domain_lon_min, domain_lon_max = np.min(domain_lons) - pad_lon, np.max(domain_lons) + pad_lon
 
-    best_gcv = np.inf
+    best_gcv_lat = np.inf
+    best_gcv_lon = np.inf
+    best_gcv_rot = np.inf
     best_params = None
     best_alpha_lat = None
     best_alpha_lon = None
+    best_alpha_rot = None
     best_t_u = None
     best_t_v = None
 
@@ -762,6 +863,7 @@ def _fit_spline(da, data_array, gamma_grid=np.logspace(0, 3, 15), knot_grid=[10]
         BtB = B.T @ B
         rhs_lat = B.T @ y_lat
         rhs_lon = B.T @ y_lon
+        rhs_rot = B.T @ y_rot
 
         # Inner loop: Smoothing parameters
         for g_u, g_v in itertools.product(gamma_grid, gamma_grid):
@@ -777,17 +879,20 @@ def _fit_spline(da, data_array, gamma_grid=np.logspace(0, 3, 15), knot_grid=[10]
                 # Get the alpha coefficients
                 alpha_lat = np.linalg.solve(lhs, rhs_lat)
                 alpha_lon = np.linalg.solve(lhs, rhs_lon)
+                alpha_rot = np.linalg.solve(lhs, rhs_rot)
             except np.linalg.LinAlgError:
                 continue 
             
             y_hat_lat = B @ alpha_lat
             y_hat_lon = B @ alpha_lon
+            y_hat_rot = B @ alpha_rot
             
             sse_lat = np.sum((y_lat - y_hat_lat)**2)
             sse_lon = np.sum((y_lon - y_hat_lon)**2)
+            sse_rot = np.sum((y_rot - y_hat_rot)**2)
             
             # FIX 3: GCV Inflation factor to aggressively penalize undersmoothing
-            inflation_factor = 1.4
+            inflation_factor = 1#1.4
             effective_N_penalty = inflation_factor * edf
             
             # Guard against the squared denominator flipping negative values to positive
@@ -798,20 +903,28 @@ def _fit_spline(da, data_array, gamma_grid=np.logspace(0, 3, 15), knot_grid=[10]
             
             gcv_lat = (sse_lat / N) / denom
             gcv_lon = (sse_lon / N) / denom
+            gcv_rot = (sse_rot / N) / denom
             
-            total_gcv = gcv_lat + gcv_lon
+            total_gcv = gcv_lat + gcv_lon + gcv_rot
             
-            if total_gcv < best_gcv:
-                best_gcv = total_gcv
-                best_params = (g_u, g_v, num_knots)
+            if  gcv_lat < best_gcv_lat:
+                best_gcv_lat = gcv_lat
+                best_params_lat = (g_u, g_v, num_knots)
                 best_alpha_lat = alpha_lat
+            if  gcv_lon < best_gcv_lon:
+                best_gcv_lon = gcv_lon
+                best_params_lon = (g_u, g_v, num_knots)
                 best_alpha_lon = alpha_lon
-                best_t_u = t_u
-                best_t_v = t_v
+            if  gcv_rot < best_gcv_rot:
+                best_gcv_rot = gcv_rot
+                best_params_rot = (g_u, g_v, num_knots)
+                best_alpha_rot = alpha_rot
 
-    print(f"Optimal Spline GCV: {best_gcv:.4f} | Knots: {best_params[2]} | gamma_u: {best_params[0]:.2e} | gamma_v: {best_params[1]:.2e}")
+    print(f"Latitudinal spline | Knots: {best_params_lat[2]} | gamma_u: {best_params_lat[0]:.2e} | gamma_v: {best_params_lat[1]:.2e}")
+    print(f"Longitudinal spline | Knots: {best_params_lon[2]} | gamma_u: {best_params_lon[0]:.2e} | gamma_v: {best_params_lon[1]:.2e}")
+    print(f"Rotational spline | Knots: {best_params_rot[2]} | gamma_u: {best_params_rot[0]:.2e} | gamma_v: {best_params_rot[1]:.2e}")
 
-    return best_alpha_lat, best_alpha_lon, best_t_u, best_t_v
+    return best_alpha_lat, best_alpha_lon, best_alpha_rot, t_u, t_v
 
 # def _fit_spline(da, data_array, gamma_u=5, gamma_v=5, num_interior_knots=10, gamma_grid=np.logspace(-1, 5, 15), knot_grid=[5], degree=3):
 #     ls_lat = data_array[:, 0]
@@ -969,7 +1082,104 @@ def _fit_spline(da, data_array, gamma_grid=np.logspace(0, 3, 15), knot_grid=[10]
     
 #     return alpha_lat, alpha_lon, t_u, t_v
 
-def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=1.0, max_lag=10, degree=3):
+# def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=1.0, max_lag=10, degree=3):
+#     N = len(lats)
+        
+#     B_u = BSpline.design_matrix(lats, t_u, degree).toarray()
+#     B_v = BSpline.design_matrix(lons, t_v, degree).toarray()
+
+#     B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, -1)
+#     lam_lat = np.exp(B @ alpha_lat)
+#     lam_lon = np.exp(B @ alpha_lon)
+    
+#     # --- 2. Grid Mapping for Fast Neighbor Search ---
+#     u_lats = np.unique(np.round(lats, 8))
+#     u_lons = np.unique(np.round(lons, 8))
+    
+#     n_rows = len(u_lats)
+#     n_cols = len(u_lons)
+    
+#     row_indices = np.searchsorted(u_lats, np.round(lats, 8))
+#     col_indices = np.searchsorted(u_lons, np.round(lons, 8))
+    
+#     grid_map = np.full((n_rows, n_cols), -1, dtype=np.int32)
+#     grid_map[row_indices, col_indices] = np.arange(N)
+
+#     rows_out = [np.arange(N)]
+#     cols_out = [np.arange(N)]
+#     data_out = [np.full(N, variance)]
+    
+#     for dr in range(-max_lag, max_lag + 1):
+#         for dc in range(-max_lag, max_lag + 1):
+#             if dr == 0 and dc == 0: 
+#                 continue 
+
+#             if dr >= 0:
+#                 r_src_start, r_src_end = 0, n_rows - dr
+#                 r_dst_start, r_dst_end = dr, n_rows
+#             else:
+#                 r_src_start, r_src_end = -dr, n_rows
+#                 r_dst_start, r_dst_end = 0, n_rows + dr
+                
+#             if dc >= 0:
+#                 c_src_start, c_src_end = 0, n_cols - dc
+#                 c_dst_start, c_dst_end = dc, n_cols
+#             else:
+#                 c_src_start, c_src_end = -dc, n_cols
+#                 c_dst_start, c_dst_end = 0, n_cols + dc
+            
+#             if r_src_end <= r_src_start or c_src_end <= c_src_start:
+#                 continue
+
+#             src = grid_map[r_src_start:r_src_end, c_src_start:c_src_end].ravel()
+#             dst = grid_map[r_dst_start:r_dst_end, c_dst_start:c_dst_end].ravel()
+            
+#             mask = (src != -1) & (dst != -1)
+#             mask &= (src < dst)
+            
+#             if not mask.any():
+#                 continue
+                
+#             u = src[mask]
+#             v = dst[mask]
+            
+#             lam_lat_u, lam_lat_v = lam_lat[u], lam_lat[v]
+#             lam_lon_u, lam_lon_v = lam_lon[u], lam_lon[v]
+            
+#             avg_var_lat = (lam_lat_u**2 + lam_lat_v**2) / 2.0
+#             avg_var_lon = (lam_lon_u**2 + lam_lon_v**2) / 2.0
+            
+#             det_u = lam_lat_u * lam_lon_u
+#             det_v = lam_lat_v * lam_lon_v
+#             det_avg = np.sqrt(avg_var_lat * avg_var_lon)
+            
+#             S_uv = np.sqrt(det_u * det_v) / det_avg
+            
+#             Q_uv = ((lats[u] - lats[v])**2 / avg_var_lat) + ((lons[u] - lons[v])**2 / avg_var_lon)
+            
+#             vals = variance * S_uv * np.exp(-0.5 * Q_uv)
+#             #vals = variance * S_uv * (1 - Q_uv) * np.exp(-0.5 * Q_uv)
+
+#             rows_out.append(u)
+#             cols_out.append(v)
+#             data_out.append(vals)
+
+#     diag_vals = data_out[0]
+    
+#     if len(rows_out) > 1:
+#         off_rows = np.concatenate(rows_out[1:])
+#         off_cols = np.concatenate(cols_out[1:])
+#         off_vals = np.concatenate(data_out[1:])
+        
+#         tri = sp.coo_matrix((off_vals, (off_rows, off_cols)), shape=(N, N))
+        
+#         full_cov = tri + tri.T + sp.diags(diag_vals, format='coo')
+#     else:
+#         full_cov = sp.diags(diag_vals, format='coo')
+        
+#     return _convert_S_tensor(full_cov.tocsr()),lam_lat,lam_lon
+
+def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v, variance=1.0, max_lag=10, degree=3):
     N = len(lats)
         
     B_u = BSpline.design_matrix(lats, t_u, degree).toarray()
@@ -978,6 +1188,17 @@ def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=
     B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, -1)
     lam_lat = np.exp(B @ alpha_lat)
     lam_lon = np.exp(B @ alpha_lon)
+    rot = B @ alpha_rot
+    
+    lam_lat_sq = lam_lat**2
+    lam_lon_sq = lam_lon**2
+    cos_rot = np.cos(rot)
+    sin_rot = np.sin(rot)
+    
+    # Elements of the local 2x2 covariance matrices for each location
+    a_cov = lam_lat_sq * cos_rot**2 + lam_lon_sq * sin_rot**2
+    b_cov = lam_lat_sq * sin_rot**2 + lam_lon_sq * cos_rot**2
+    c_cov = (lam_lat_sq - lam_lon_sq) * cos_rot * sin_rot
     
     # --- 2. Grid Mapping for Fast Neighbor Search ---
     u_lats = np.unique(np.round(lats, 8))
@@ -1030,22 +1251,29 @@ def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=
             u = src[mask]
             v = dst[mask]
             
-            lam_lat_u, lam_lat_v = lam_lat[u], lam_lat[v]
-            lam_lon_u, lam_lon_v = lam_lon[u], lam_lon[v]
+            # Distance vectors
+            dx = lats[u] - lats[v]
+            dy = lons[u] - lons[v]
             
-            avg_var_lat = (lam_lat_u**2 + lam_lat_v**2) / 2.0
-            avg_var_lon = (lam_lon_u**2 + lam_lon_v**2) / 2.0
+            # Average covariance matrix elements: Sigma_avg = (Sigma_u + Sigma_v) / 2
+            a_avg = (a_cov[u] + a_cov[v]) / 2.0
+            b_avg = (b_cov[u] + b_cov[v]) / 2.0
+            c_avg = (c_cov[u] + c_cov[v]) / 2.0
             
-            det_u = lam_lat_u * lam_lon_u
-            det_v = lam_lat_v * lam_lon_v
-            det_avg = np.sqrt(avg_var_lat * avg_var_lon)
+            # Determinant of the averaged covariance matrix
+            det_avg = a_avg * b_avg - c_avg**2
             
-            S_uv = np.sqrt(det_u * det_v) / det_avg
+            # The determinants of the individual matrices are invariant to rotation
+            det_u = lam_lat[u] * lam_lon[u]  # This is sqrt(|Sigma_u|)
+            det_v = lam_lat[v] * lam_lon[v]  # This is sqrt(|Sigma_v|)
             
-            Q_uv = ((lats[u] - lats[v])**2 / avg_var_lat) + ((lons[u] - lons[v])**2 / avg_var_lon)
+            # S_uv scaling factor
+            S_uv = np.sqrt(det_u * det_v) / np.sqrt(det_avg)
+            
+            # Explicit 2x2 matrix inverse for the quadratic form: (X^T * Sigma_avg^-1 * X)
+            Q_uv = (b_avg * dx**2 - 2 * c_avg * dx * dy + a_avg * dy**2) / det_avg
             
             vals = variance * S_uv * np.exp(-0.5 * Q_uv)
-            #vals = variance * S_uv * (1 - Q_uv) * np.exp(-0.5 * Q_uv)
 
             rows_out.append(u)
             cols_out.append(v)
@@ -1064,7 +1292,7 @@ def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, t_u, t_v, variance=
     else:
         full_cov = sp.diags(diag_vals, format='coo')
         
-    return _convert_S_tensor(full_cov.tocsr()),lam_lat,lam_lon
+    return _convert_S_tensor(full_cov.tocsr()), lam_lat, lam_lon, rot
 
 def _gen_synth_spline(lats, lons, num_interior_knots=5, degree=3, mode='gradient'):
     """
@@ -1132,7 +1360,7 @@ def _gen_synth_spline(lats, lons, num_interior_knots=5, degree=3, mode='gradient
     return alpha_lat, alpha_lon, t_u, t_v
 
 
-def _construct_omega_matrix(da, k_pos=6, k_neg=15, lambda_neg=1.0, random_state=2):
+def _construct_omega_matrix(da, k_pos=12, k_neg=50, lambda_neg=1.0, random_state=2):
     """
     Constructs the contrastive graph matrix Omega = A^+ - lambda * A^-
     for Spectral Contrastive Loss optimization.
