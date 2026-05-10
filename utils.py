@@ -1331,8 +1331,8 @@ def _gen_synth_spline(lats, lons, num_interior_knots=5, degree=3, mode='gradient
         # We shape it (K_v, K_u) so that flattening it perfectly matches
         # the (N, K_v, K_u) reshape in your einsum logic.
         val_v, val_u = np.meshgrid(
-            np.linspace(0.5, 2.0, K_v), 
-            np.linspace(0.5, 2.0, K_u), 
+            np.linspace(0., 1.609, K_v), 
+            np.linspace(0., 1.609, K_u), 
             indexing='ij'
         )
         
