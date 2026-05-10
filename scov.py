@@ -209,7 +209,7 @@ class SpatialCovariance:
 		#fit best ls for fixed init_phi
 		#
 		ls_combinations = list(itertools.product(lss, lss, rots))
-		init_phi = 1e3
+		init_phi = 1e4
 		#
 		results = list(tqdm(
 			Parallel(n_jobs=self.n_cores, return_as='generator')(
@@ -267,7 +267,7 @@ class SpatialCovariance:
 		#fit best ls for fixed init_phi
 		#
 		ls_combinations = list(itertools.product(lss, lss))
-		init_phi = 1e3
+		init_phi = 1e4
 		
 		results = list(tqdm(
 			Parallel(n_jobs=self.n_cores, return_as='generator')(
