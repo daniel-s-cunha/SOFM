@@ -278,7 +278,7 @@ class SpatialCovariance:
 			desc = 'Validating length scales'
 		))
 		
-		self.ls1_, self.ls2_, _ = min(results, key=lambda x: x[2])
+		self.ls1_, self.ls2_, _, _ = min(results, key=lambda x: x[2])
 		self.spatcov_ = utils._compute_spat_cov_rs(self.data, 1, self.ls1_, self.ls2_, max_lag=self.max_lag)
 		#
 		#fit best phi for fixed ls
