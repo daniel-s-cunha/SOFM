@@ -262,7 +262,7 @@ class SpatialCovariance:
 		self.sill_, _ = min(results, key=lambda x: x[1])
 		self.spatcov_ = self.sill_ * self.spatcov_
 
-	def _fit_stationary(self, lss, phis, rots):
+	def _fit_stationary(self, lss, phis):
 		#
 		#fit best ls for fixed init_phi
 		#
@@ -271,7 +271,7 @@ class SpatialCovariance:
 		
 		results = list(tqdm(
 			Parallel(n_jobs=self.n_cores, return_as='generator')(
-				delayed(self._evaluate_ls)(ls1, ls2, init_phi) 
+				delayed(self._evaluate_ls)(ls1, ls2, [0], init_phi) 
 				for ls1, ls2 in ls_combinations
 			),
 			total = len(ls_combinations),
