@@ -202,7 +202,7 @@ class SpatialCovariance:
 		if self.nonstationary:
 			self._fit_nonstationary(lss, phis, rots)
 		else:
-			self._fit_stationary(lss, phis, rots)
+			self._fit_stationary(lss, phis)
 			
 	def _fit_nonstationary(self, lss, phis, rots):
 		#
