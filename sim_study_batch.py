@@ -29,7 +29,7 @@ def main():
     sample_sizes = [200, 500, 1000, 5000, 10000]
     sigmas = [5,10]
     max_lags = [2,20]
-    prior_covs = ["circle","constant","gradient"]
+    prior_covs = [0,1,2]#["circle","constant","gradient"]
     growings = [True,False]
     replicates = [j for j in range(20)]
     #
@@ -43,7 +43,7 @@ def main():
     print(f"Running Task {args.task_id}: n_samples = {n_samples}, sigma={sigma}, max_lag={max_lag}, prior_cov={prior_cov}, growing={growing}, replicate={replicate}")
 
     torch.set_num_threads(1)
-    
+    prior_covs_n = ["circle","constant","gradient"]
     try:
         sq_len = 20
         print(f"\n{'='*40}")
@@ -62,7 +62,7 @@ def main():
             max_lag=20, 
             ls1=1, 
             ls2=1, 
-            mode=prior_cov,
+            mode=prior_covs_n[prior_cov],
             sigma=sigma
         )
         
@@ -99,7 +99,6 @@ def main():
         sigma_loss = (sigma_est - sigma_true_val)**2
         
         run_time = time.time() - start_time
-        print(f"  Rep {rep+1}/{n_replications} | Time: {run_time:.1f}s | U_MSE: {U_loss:.5f} | L_MSE: {L_loss:.2f}")
     except Exception as e:
         print(f"Error in computation: {e}")
         U_loss = -999
