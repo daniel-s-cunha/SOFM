@@ -134,6 +134,9 @@ def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, no
     else:
         _, L_diag = _optimize_log_prior(U, Sigma, phi, m, k)
     #
+    mt = np.random.uniform(0.75,1.25)
+    L_diag = L_diag**mt
+    #
     T_new = n_samples
     #
     EZ = np.random.normal(size=(k, T_new))
@@ -1294,6 +1297,73 @@ def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v
         
     return _convert_S_tensor(full_cov.tocsr()), lam_lat, lam_lon, rot
 
+# def _gen_synth_spline(lats, lons, num_interior_knots=5, degree=3, mode='gradient'):
+#     """
+#     Generates synthetic spline parameters (alpha_lat, alpha_lon, t_u, t_v)
+#     to feed into the nonstationary covariance constructor.
+#     """
+#     # 1. Define boundaries based on the input data (with slight padding)
+#     pad_lat = (np.max(lats) - np.min(lats)) * 0.01
+#     pad_lon = (np.max(lons) - np.min(lons)) * 0.01
+    
+#     domain_lat_min, domain_lat_max = np.min(lats) - pad_lat, np.max(lats) + pad_lat
+#     domain_lon_min, domain_lon_max = np.min(lons) - pad_lon, np.max(lons) + pad_lon
+    
+#     # 2. Construct knot vectors (t_u for latitude, t_v for longitude)
+#     u_knots = np.linspace(domain_lat_min, domain_lat_max, num_interior_knots)
+#     t_u = np.r_[[u_knots[0]] * degree, u_knots, [u_knots[-1]] * degree]
+    
+#     v_knots = np.linspace(domain_lon_min, domain_lon_max, num_interior_knots)
+#     t_v = np.r_[[v_knots[0]] * degree, v_knots, [v_knots[-1]] * degree]
+    
+#     # Calculate the number of basis functions created by these knots
+#     K_u = len(t_u) - degree - 1
+#     K_v = len(t_v) - degree - 1
+#     K_total = K_v * K_u  # Order matters here to match your einsum!
+    
+#     # 3. Generate the alpha coefficients
+#     # Recall that in your constructor: lam = exp(B @ alpha)
+#     # Therefore, alpha is in log-space. An alpha of 0 -> length scale of 1.0. 
+#     # An alpha of 1.6 -> length scale of ~5.0.
+    
+#     if mode == 'gradient':
+#         # Creates a smooth gradient where length scales get larger 
+#         # as you move North and East.
+        
+#         # Create a grid of values from 0.5 to 2.0 (length scales ~1.6 to ~7.3)
+#         # We shape it (K_v, K_u) so that flattening it perfectly matches
+#         # the (N, K_v, K_u) reshape in your einsum logic.
+#         val_v, val_u = np.meshgrid(
+#             np.linspace(0., 1.609, K_v), 
+#             np.linspace(0., 1.609, K_u), 
+#             indexing='ij'
+#         )
+        
+#         # Latitudinal length scales change based on latitude (u)
+#         alpha_lat = val_u.flatten() 
+#         # Longitudinal length scales change based on longitude (v)
+#         alpha_lon = val_v.flatten() 
+        
+#     elif mode == 'random':
+#         # Creates a smooth but randomized nonstationary field
+#         #np.random.seed(42)
+#         # Centered around 1.0 (length scale ~2.7) with some variance
+#         alpha_lat = np.random.normal(loc=1.0, scale=0.4, size=K_total)
+#         alpha_lon = np.random.normal(loc=1.0, scale=0.4, size=K_total)
+        
+#     elif mode == 'constant':
+#         # Effectively turns your nonstationary model into a stationary one
+#         # for baseline testing. (Length scale = exp(1.5) = 4.48 everywhere)
+#         alpha_lat = np.full(K_total, 1.5)
+#         alpha_lon = np.full(K_total, 1.5)
+        
+#     else:
+#         raise ValueError("mode must be 'gradient', 'random', or 'constant'")
+        
+#     return alpha_lat, alpha_lon, t_u, t_v
+
+import numpy as np
+
 def _gen_synth_spline(lats, lons, num_interior_knots=5, degree=3, mode='gradient'):
     """
     Generates synthetic spline parameters (alpha_lat, alpha_lon, t_u, t_v)
@@ -1341,12 +1411,47 @@ def _gen_synth_spline(lats, lons, num_interior_knots=5, degree=3, mode='gradient
         # Longitudinal length scales change based on longitude (v)
         alpha_lon = val_v.flatten() 
         
-    elif mode == 'random':
-        # Creates a smooth but randomized nonstationary field
-        #np.random.seed(42)
-        # Centered around 1.0 (length scale ~2.7) with some variance
-        alpha_lat = np.random.normal(loc=1.0, scale=0.4, size=K_total)
-        alpha_lon = np.random.normal(loc=1.0, scale=0.4, size=K_total)
+    elif mode == 'circle':
+        # Creates a spatial domain where length scales are long inside a centered
+        # circle (occupying ~50% of the area) and short outside of it.
+        
+        # Approximate control point spatial locations across the domain
+        cp_lons, cp_lats = np.meshgrid(
+            np.linspace(domain_lon_min, domain_lon_max, K_v),
+            np.linspace(domain_lat_min, domain_lat_max, K_u),
+            indexing='ij'
+        )
+        
+        # Find the center of the domain
+        center_lon = (domain_lon_min + domain_lon_max) / 2.0
+        center_lat = (domain_lat_min + domain_lat_max) / 2.0
+        
+        # Normalize the distances so the domain goes from -1 to 1 in both directions.
+        # This allows us to map a perfect circle in normalized space to an ellipse 
+        # that scales naturally with the actual map dimensions.
+        w = domain_lon_max - domain_lon_min
+        h = domain_lat_max - domain_lat_min
+        
+        norm_lon = (cp_lons - center_lon) / (w / 2.0)
+        norm_lat = (cp_lats - center_lat) / (h / 2.0)
+        
+        # Squared distance from the center in normalized space
+        sq_dist = norm_lon**2 + norm_lat**2
+        
+        # The area of the normalized domain is 2 * 2 = 4.
+        # We want the circle to take up half the area (Area = 2).
+        # pi * r^2 = 2  =>  r^2 = 2 / pi
+        r_sq_threshold = 2.0 / np.pi
+        
+        # Set alphas: ~5.0 inside the circle, ~1.0 outside the circle
+        long_scale = 1.609  # exp(1.609) ≈ 5.0
+        short_scale = 0.0   # exp(0) = 1.0
+        
+        # Apply the boolean mask
+        alpha_grid = np.where(sq_dist <= r_sq_threshold, long_scale, short_scale)
+        
+        alpha_lat = alpha_grid.flatten()
+        alpha_lon = alpha_grid.flatten()
         
     elif mode == 'constant':
         # Effectively turns your nonstationary model into a stationary one
@@ -1355,10 +1460,9 @@ def _gen_synth_spline(lats, lons, num_interior_knots=5, degree=3, mode='gradient
         alpha_lon = np.full(K_total, 1.5)
         
     else:
-        raise ValueError("mode must be 'gradient', 'random', or 'constant'")
+        raise ValueError("mode must be 'gradient', 'circle', or 'constant'")
         
     return alpha_lat, alpha_lon, t_u, t_v
-
 
 def _construct_omega_matrix(da, k_pos=12, k_neg=50, lambda_neg=1.0, random_state=2):
     """
