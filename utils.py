@@ -118,7 +118,10 @@ def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, no
         alpha_lat, alpha_lon, t_u, t_v = _gen_synth_spline(
             lats, lons, num_interior_knots=5, mode=mode
         )
-        alpha_rot = alpha_lat/4 #this should yield rotations less than pi/4 ~= np.log(5)/4
+        if mode=='circle':
+            alpha_rot = np.zeros(alpha_lat.shape[0])
+        else:
+            alpha_rot = alpha_lat/4 #this should yield rotations less than pi/4 ~= np.log(5)/4
 
         Sigma,lam_lat,lam_lon,rot = _construct_nonstat_cov(
             lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v, variance=phi, max_lag=max_lag
@@ -1441,7 +1444,7 @@ def _gen_synth_spline(lats, lons, num_interior_knots=5, degree=3, mode='gradient
         # The area of the normalized domain is 2 * 2 = 4.
         # We want the circle to take up half the area (Area = 2).
         # pi * r^2 = 2  =>  r^2 = 2 / pi
-        r_sq_threshold = 2.0 / np.pi
+        r_sq_threshold = 1.0 / np.pi
         
         # Set alphas: ~5.0 inside the circle, ~1.0 outside the circle
         long_scale = 1.609  # exp(1.609) ≈ 5.0
