@@ -68,7 +68,7 @@ def main():
         
         # 2. Initialize and Fit Model
         # Note: Ensure block_sz matches your init parameter name (block_sz vs block_sz)
-        mod = sofm.SOFM(da, n_components=3, max_lag = max_lag, nonstationary=True, block_sz=1, n_blocks=int(sq_len**2/9),n_cores=32)
+        mod = sofm.SOFM(da, n_components=3, max_lag = max_lag, nonstationary=True, block_sz=1, n_blocks=int(sq_len**2/9),n_cores=1)
         mod.fit(lss = [1,3,5],phis=[1e2,1e3,1e4],rots=[0,np.pi/12,2*np.pi/12])
         sc = mod.spatcov_
         lat_mse = np.mean((sc.lam_lat_ - lam_lat)**2)
