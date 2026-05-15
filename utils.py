@@ -120,6 +120,8 @@ def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, no
         )
         if mode=='circle':
             alpha_rot = np.zeros(alpha_lat.shape[0])
+        if mode=='gradient':
+            alpha_rot = np.zeros(alpha_lat.shape[0])
         else:
             alpha_rot = alpha_lat/4 #this should yield rotations less than pi/4 ~= np.log(5)/4
 

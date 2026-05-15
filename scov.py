@@ -163,7 +163,7 @@ class SpatialCovariance:
 		axes[1][1].set_ylabel('Latitude')
 
 		plt.tight_layout()
-		plt.show()
+		return fig
 
 	def _evaluate_ls(self, ls1, ls2, rot, init_phi):
 		Sigma = utils._compute_spat_cov_rs(
@@ -187,9 +187,15 @@ class SpatialCovariance:
 			return (ls1, ls2, rot, loss_tot)
 
 	def _evaluate_phi(self, phi):
+		Sigma = utils._compute_spat_cov_rs(
+			self.data, 
+			phi=1, 
+			length_scale=5,
+			max_lag=self.max_lag
+		)        
 		U, L, Ez, sigma2, loss, loss_tot = utils._cv_spatPCA(
 			self.data, 
-			phi*self.spatcov_, 
+			phi*Sigma, 
 			self.holdout_, 
 			k=self.n_components, 
 			phi=phi
@@ -206,10 +212,28 @@ class SpatialCovariance:
 			
 	def _fit_nonstationary(self, lss, phis, rots):
 		#
+		#
+		#fit best phi for fixed ls
+		#		
+		results = list(tqdm(
+			Parallel(n_jobs=self.n_cores, return_as="generator")(
+				delayed(self._evaluate_phi)(phi) 
+				for phi in phis
+			),
+			total = len(phis),
+			desc = 'Validating sill'
+		))
+
+		# results = Parallel(n_jobs=-1)(
+		# 	delayed(self._evaluate_phi)(phi) 
+		# 	for phi in tqdm(phis, desc='Validating sill variance for prior spatial covariance.')
+		# )
+		self.sill_, _ = min(results, key=lambda x: x[1])
+		#
 		#fit best ls for fixed init_phi
 		#
 		ls_combinations = list(itertools.product(lss, lss, rots))
-		init_phi = 1e4
+		init_phi = self.sill_
 		#
 		results = list(tqdm(
 			Parallel(n_jobs=self.n_cores, return_as='generator')(
@@ -242,24 +266,6 @@ class SpatialCovariance:
 		self.alpha_lat_, self.alpha_lon_, self.alpha_rot_, self.t_u_, self.t_v_ = utils._fit_spline(self.data,self.minimizer_)
 		#fit with variance=1 so you only have to run it once and can instead adjust it by multiplying phi
 		self.spatcov_, self.lam_lat_, self.lam_lon_, self.rot_ = utils._construct_nonstat_cov(self.data.lat.values, self.data.lon.values, self.alpha_lat_, self.alpha_lon_, self.alpha_rot_, self.t_u_, self.t_v_, variance=1, max_lag=self.max_lag)
-		#
-		#fit best phi for fixed ls
-		#		
-		results = list(tqdm(
-			Parallel(n_jobs=self.n_cores, return_as="generator")(
-				delayed(self._evaluate_phi)(phi) 
-				for phi in phis
-			),
-			total = len(phis),
-			desc = 'Validating sill'
-		))
-
-		# results = Parallel(n_jobs=-1)(
-		# 	delayed(self._evaluate_phi)(phi) 
-		# 	for phi in tqdm(phis, desc='Validating sill variance for prior spatial covariance.')
-		# )
-
-		self.sill_, _ = min(results, key=lambda x: x[1])
 		self.spatcov_ = self.sill_ * self.spatcov_
 
 	def _fit_stationary(self, lss, phis):
