@@ -116,13 +116,13 @@ def _create_mask(da, n_blocks=80, block_sz=10):
     # ---------------------------------------------------------
 
     #
-    print("Running kmeans...")
+    #print("Running kmeans...")
     #kmeans = KMeans(n_clusters=n_blocks, random_state=42, n_init=10)
     kmeans = MiniBatchKMeans(n_clusters=n_blocks, random_state=42)
     kmeans.fit(centers)
     centroids = kmeans.cluster_centers_
     #
-    print("Fitting KD tree...")
+    #print("Fitting KD tree...")
     tree = cKDTree(centers)
     _, closest_idx = tree.query(centroids)
     #
@@ -131,7 +131,7 @@ def _create_mask(da, n_blocks=80, block_sz=10):
     
     # OPTIMIZATION: Pass `block_ids` (numpy array) instead of `spat_blk` (xarray)
     # This prevents triggering a redundant Dask computation.
-    print("Constructing mask...")
+    #print("Constructing mask...")
     mask_array = np.where(np.isin(block_ids, mask_ids), block_ids, 0)
     mask = torch.tensor(mask_array, dtype=torch.int16)
     #
