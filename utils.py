@@ -479,7 +479,7 @@ def _spatPCA(
     L_approx = (Lams - sigma2)**0.5
     L_diag = torch.tensor(L_approx, dtype=torch.float32, requires_grad=True) 
     if sigma2<=0:
-        sigma2 = 0.001
+        sigma2 = 0.01
     sigma = torch.tensor(sigma2**0.5, dtype=torch.float32, requires_grad=True)
     #
     prev_ll = -torch.inf
@@ -590,7 +590,7 @@ def _cv_spatPCA(
     L_diag = torch.tensor(L_approx, dtype=torch.float32, requires_grad=True) 
     #print('INITIAL L: ',L_diag)
     if sigma2<=0:
-        sigma2 = 0.001
+        sigma2 = 0.01
     sigma = torch.tensor(sigma2**0.5, dtype=torch.float32, requires_grad=True)
     #
     prev_ll = -torch.inf

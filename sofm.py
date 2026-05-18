@@ -35,7 +35,7 @@ class SOFM:
         self.Ez_ = None
         self.sigma2_ = None
 
-    def fit(self, lss=[1,3,5], phis=[1e2,5e2,1e3,5e3,1e4,5e4,1e5], rots = [0, np.pi/12, 2*np.pi/12]):
+    def fit(self, lss=[1,3,5], phis=[1e1,1e2,1e3], rots = [0, np.pi/12, 2*np.pi/12]):
         #
         start_time = time.time()
         print(f"[{time.strftime('%H:%M:%S')}] Estimating prior spatial covariance...")
@@ -78,32 +78,6 @@ class SOFM:
         self.Ez_ = Ez
         self.sigma2_ = sigma2.detach()
 
-    # def plot_loadings(self):
-    #     #
-    #     k = self.U_.shape[1]
-    #     #
-    #     W_da = xr.DataArray(
-    #         data=self.U_,
-    #         dims=('location', 'factor'),
-    #         coords={
-    #             'location': self.data.location,
-    #             'factor': np.arange(k)
-    #         }
-    #     )
-    #     W_da = W_da.unstack()
-    #     W_da = W_da.sortby('lon','lat')
-
-    #     fig, axes = plt.subplots(k, 2, figsize=(16, 4*k))
-
-    #     for j in range(k):
-    #         ff = j
-    #         (1*W_da).isel(factor=ff).plot(ax=axes[j][1], cmap='RdBu_r', add_colorbar=False) #,robust=True
-    #         axes[j][1].set_title(f'Spatial loadings')
-    #         axes[j][1].set_xlabel('')
-    #         axes[j][1].set_ylabel('')
-    #     plt.tight_layout()
-    #     plt.show()
-
     def plot_loadings(self):
         k = self.U_.shape[1]
         
@@ -118,24 +92,21 @@ class SOFM:
         W_da = W_da.unstack()
         W_da = W_da.sortby('lon', 'lat')
 
-        # Calculate columns for a square-ish layout
-        ncols = math.ceil(math.sqrt(k))
-        nrows = math.ceil(k / ncols)
+        ncols = k
+        nrows = 1
 
-        # Let xarray handle the looping and grid placement automatically
         g = (1*W_da).plot(
             col='factor', 
-            col_wrap=ncols,       # This tells xarray when to start a new row
+            col_wrap=None,
             cmap='RdBu_r', 
             add_colorbar=False,
-            figsize=(4*ncols, 4*nrows)
+            figsize=(4 * ncols, 4)
         )
 
-        # Clean up the formatting for all plots at once
-        g.set_titles(template="Spatial loadings")
+        # Clean up formatting
+        g.set_titles(template="")
         g.set_axis_labels("", "")
 
-        plt.show()
-
+        return g.fig
 
 
