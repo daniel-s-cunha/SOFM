@@ -126,6 +126,8 @@ def _create_mask(da, n_blocks=80, block_sz=10):
     tree = cKDTree(centers)
     _, closest_idx = tree.query(centroids)
     #
+    closest_idx = np.unique(closest_idx)
+    #
     mask_ids = valid_uniq[closest_idx]
     mask_centers = centers[closest_idx]
     
