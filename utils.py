@@ -116,7 +116,8 @@ def _create_mask(da, n_blocks=80, block_sz=10):
 
     #
     print("Running kmeans...")
-    kmeans = KMeans(n_clusters=n_blocks, random_state=42, n_init=10)
+    #kmeans = KMeans(n_clusters=n_blocks, random_state=42, n_init=10)
+    kmeans = MiniBatchKMeans(n_clusters=n_blocks, random_state=42)
     kmeans.fit(centers)
     centroids = kmeans.cluster_centers_
     #
