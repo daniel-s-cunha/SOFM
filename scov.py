@@ -211,16 +211,19 @@ class SpatialCovariance:
 		#
 		#fit best phi for fixed ls
 		#		
-		results = list(tqdm(
-			Parallel(n_jobs=self.n_cores, return_as="generator")(
-				delayed(self._evaluate_phi)(phi) 
-				for phi in phis
-			),
-			total = len(phis),
-			desc = 'Validating sill'
-		))
-		#
-		self.sill_, _ = min(results, key=lambda x: x[1])
+		if len(phis)>1:
+			results = list(tqdm(
+				Parallel(n_jobs=self.n_cores, return_as="generator")(
+					delayed(self._evaluate_phi)(phi) 
+					for phi in phis
+				),
+				total = len(phis),
+				desc = 'Validating sill'
+			))
+			#
+			self.sill_, _ = min(results, key=lambda x: x[1])
+		else:
+			self.sill_ = phis[0]
 		#
 		#fit best lss
 		#
@@ -239,9 +242,7 @@ class SpatialCovariance:
 		res_dict = {(res[0], res[1], res[2]): res[3] for res in results}
 		loss_df = pd.DataFrame(res_dict)
 
-		#------------------------------------------------------------- 
 		loss_df.index = self.holdout_ids_
-		#-------------------------------------------------------------
 
 		minimizer = loss_df.idxmin(axis=1).rename('ls_hat')
 		
