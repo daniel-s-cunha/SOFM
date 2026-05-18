@@ -240,8 +240,8 @@ class SpatialCovariance:
 		loss_df = pd.DataFrame(res_dict)
 
 		#------------------------------------------------------------- 
-        loss_df.index = self.holdout_ids_
-        #-------------------------------------------------------------
+		loss_df.index = self.holdout_ids_
+		#-------------------------------------------------------------
 
 		minimizer = loss_df.idxmin(axis=1).rename('ls_hat')
 		
