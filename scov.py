@@ -73,8 +73,6 @@ class SpatialCovariance:
 	def generate_holdout(self):
 		#
 		self.holdout_, self.holdout_ids_, self.holdout_centers_ = utils._create_mask(self.data,n_blocks=self.n_blocks,block_sz=self.block_sz)
-		self.n_blocks = len(self.holdout_ids_)
-		print(f"Due to overlap, the number of held-out blocks has been reduced to {self.n_blocks}.")
 		#
 		#return self
 	
