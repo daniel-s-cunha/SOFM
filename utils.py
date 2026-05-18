@@ -58,25 +58,62 @@ def _constr_spat_blk(da,block_sz=10):
     )
     return(final_mask)
 
-def _create_mask(da,n_blocks=80,block_sz=10):
+# def _create_mask(da,n_blocks=80,block_sz=10):
+#     #
+#     spat_blk = _constr_spat_blk(da, block_sz=block_sz)
+#     block_ids = spat_blk.values
+#     lats = da.lat.values
+#     lons = da.lon.values
+#     uniq = np.unique(block_ids)
+#     #
+#     centers = []
+#     valid_uniq = []
+#     #
+#     for uid in uniq:
+#         in_block = (block_ids == uid)
+#         if np.any(in_block): 
+#             centers.append([np.mean(lats[in_block]), np.mean(lons[in_block])])
+#             valid_uniq.append(uid)
+            
+#     centers = np.array(centers)
+#     valid_uniq = np.array(valid_uniq)
+#     #
+#     kmeans = KMeans(n_clusters=n_blocks, random_state=42, n_init=10)
+#     kmeans.fit(centers)
+#     centroids = kmeans.cluster_centers_
+#     #
+#     tree = cKDTree(centers)
+#     _, closest_idx = tree.query(centroids)
+#     #
+#     mask_ids = valid_uniq[closest_idx]
+#     #
+#     mask_centers = centers[closest_idx]
+#     #
+#     mask = torch.tensor(np.where(np.isin(spat_blk, mask_ids), spat_blk, 0),dtype=torch.int16)
+#     #
+#     return mask, mask_ids, mask_centers
+
+def _create_mask(da, n_blocks=80, block_sz=10):
     #
     spat_blk = _constr_spat_blk(da, block_sz=block_sz)
-    block_ids = spat_blk.values
+    
+    # Extract to numpy ONCE to prevent Dask from re-evaluating the graph later
+    block_ids = spat_blk.values 
     lats = da.lat.values
     lons = da.lon.values
-    uniq = np.unique(block_ids)
-    #
-    centers = []
-    valid_uniq = []
-    #
-    for uid in uniq:
-        in_block = (block_ids == uid)
-        if np.any(in_block): 
-            centers.append([np.mean(lats[in_block]), np.mean(lons[in_block])])
-            valid_uniq.append(uid)
-            
-    centers = np.array(centers)
-    valid_uniq = np.array(valid_uniq)
+    
+    # ---------------------------------------------------------
+    # OPTIMIZATION: Replace the O(N*U) loop with a vectorized groupby
+    # ---------------------------------------------------------
+    df = pd.DataFrame({'block': block_ids, 'lat': lats, 'lon': lons})
+    
+    # Calculate means for all blocks simultaneously
+    grouped = df.groupby('block').mean()
+    
+    valid_uniq = grouped.index.values
+    centers = grouped[['lat', 'lon']].values
+    # ---------------------------------------------------------
+
     #
     kmeans = KMeans(n_clusters=n_blocks, random_state=42, n_init=10)
     kmeans.fit(centers)
@@ -86,10 +123,12 @@ def _create_mask(da,n_blocks=80,block_sz=10):
     _, closest_idx = tree.query(centroids)
     #
     mask_ids = valid_uniq[closest_idx]
-    #
     mask_centers = centers[closest_idx]
-    #
-    mask = torch.tensor(np.where(np.isin(spat_blk, mask_ids), spat_blk, 0),dtype=torch.int16)
+    
+    # OPTIMIZATION: Pass `block_ids` (numpy array) instead of `spat_blk` (xarray)
+    # This prevents triggering a redundant Dask computation.
+    mask_array = np.where(np.isin(block_ids, mask_ids), block_ids, 0)
+    mask = torch.tensor(mask_array, dtype=torch.int16)
     #
     return mask, mask_ids, mask_centers
 
