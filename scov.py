@@ -29,7 +29,7 @@ from threadpoolctl import threadpool_limits
 class SpatialCovariance:
 
 	def __init__(self, data, nonstationary=True, n_components = 1, max_lag=30, block_sz = 5, n_blocks = 20, n_cores = -1):
-		self.data = self._standardize_input(data)
+		self.data = self._standardize_input(data).compute()
 		self.nonstationary = nonstationary
 		self.max_lag = max_lag
 		self.block_sz = block_sz
