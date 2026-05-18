@@ -135,7 +135,7 @@ def _create_mask(da, n_blocks=80, block_sz=10):
     # This prevents triggering a redundant Dask computation.
     #print("Constructing mask...")
     mask_array = np.where(np.isin(block_ids, mask_ids), block_ids, 0)
-    mask = torch.tensor(mask_array, dtype=torch.int16)
+    mask = torch.tensor(mask_array, dtype=torch.int32)
     #
     return mask, mask_ids, mask_centers
 
