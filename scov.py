@@ -238,7 +238,11 @@ class SpatialCovariance:
 
 		res_dict = {(res[0], res[1], res[2]): res[3] for res in results}
 		loss_df = pd.DataFrame(res_dict)
-		
+
+		#------------------------------------------------------------- 
+        loss_df.index = self.holdout_ids_
+        #-------------------------------------------------------------
+
 		minimizer = loss_df.idxmin(axis=1).rename('ls_hat')
 		
 		centers_df = pd.DataFrame(
