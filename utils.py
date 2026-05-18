@@ -1,3 +1,4 @@
+from sklearn.cluster import MiniBatchKMeans
 from sklearn.neighbors import kneighbors_graph
 import sympy.printing
 import itertools
