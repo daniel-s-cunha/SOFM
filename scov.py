@@ -140,7 +140,7 @@ class SpatialCovariance:
 		format_ax(axes[2], 'Rotation')
 		
 		# 4. Anisotropy
-		W_da4.plot(ax=axes[3], cmap=cm.plasma, add_colorbar=True, 
+		W_da4.plot(ax=axes[3], cmap=cm.plasma, add_colorbar=True, vmin=1,vmax=2,
 					cbar_kwargs={'format': '%.1f'})
 		format_ax(axes[3], 'Anisotropy ratio')
 		
