@@ -108,7 +108,7 @@ class SpatialCovariance:
 		W_da2 = prep_da(self.lam_lon_)
 		W_da3 = prep_da(self.rot_)
 		
-		ar = np.log(np.maximum(self.lam_lat_, self.lam_lon_) / (np.minimum(self.lam_lat_, self.lam_lon_) + 1e-8))
+		ar = np.maximum(self.lam_lat_, self.lam_lon_) / (np.minimum(self.lam_lat_, self.lam_lon_) + 1e-8)
 		W_da4 = prep_da(ar)
 
 		# --- Plotting Configuration ---
@@ -142,7 +142,7 @@ class SpatialCovariance:
 		# 4. Anisotropy
 		W_da4.plot(ax=axes[3], cmap=cm.plasma, add_colorbar=True, 
 					cbar_kwargs={'format': '%.1f'})
-		format_ax(axes[3], 'Anisotropy log ratio')
+		format_ax(axes[3], 'Anisotropy ratio')
 		
 		plt.tight_layout()
 		return fig
