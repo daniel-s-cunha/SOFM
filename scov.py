@@ -135,12 +135,12 @@ class SpatialCovariance:
 		format_ax(axes[1], 'Longitudinal length scale')
 		
 		# 3. Rotation
-		W_da3.plot(ax=axes[2], cmap=cm.plasma, vmin=0, 
+		W_da3.plot(ax=axes[2], cmap=cm.plasma, vmin=0,  robust=True,
 					add_colorbar=True, cbar_kwargs={'format': '%.2f'})
 		format_ax(axes[2], 'Rotation')
 		
 		# 4. Anisotropy
-		W_da4.plot(ax=axes[3], cmap=cm.plasma, add_colorbar=True, vmin=1,vmax=1.5,
+		W_da4.plot(ax=axes[3], cmap=cm.plasma, add_colorbar=True, robust=True,
 					cbar_kwargs={'format': '%.1f'})
 		format_ax(axes[3], 'Anisotropy ratio')
 		
