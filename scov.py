@@ -108,7 +108,7 @@ class SpatialCovariance:
 		W_da2 = prep_da(self.lam_lon_)
 		W_da3 = prep_da(self.rot_)
 		
-		ar = np.maximum(self.lam_lat_, self.lam_lon_) / (np.minimum(self.lam_lat_, self.lam_lon_) + 1e-8)
+		ar = np.log(np.maximum(self.lam_lat_, self.lam_lon_) / (np.minimum(self.lam_lat_, self.lam_lon_) + 1e-8))
 		W_da4 = prep_da(ar)
 
 		# --- Plotting Configuration ---
@@ -135,14 +135,14 @@ class SpatialCovariance:
 		format_ax(axes[1], 'Longitudinal length scale')
 		
 		# 3. Rotation
-		W_da3.plot(ax=axes[2], cmap=cm.plasma, #vmin=0, vmax=np.pi/20, 
+		W_da3.plot(ax=axes[2], cmap=cm.plasma, vmin=0, 
 					add_colorbar=True, cbar_kwargs={'format': '%.2f'})
-		format_ax(axes[2], 'Rotation (rad)')
+		format_ax(axes[2], 'Rotation')
 		
 		# 4. Anisotropy
 		W_da4.plot(ax=axes[3], cmap=cm.plasma, add_colorbar=True, 
-					robust=True, cbar_kwargs={'format': '%.1f'})
-		format_ax(axes[3], 'Anisotropy ratio')
+					cbar_kwargs={'format': '%.1f'})
+		format_ax(axes[3], 'Anisotropy log ratio')
 		
 		plt.tight_layout()
 		return fig
@@ -225,6 +225,7 @@ class SpatialCovariance:
 		else:
 			self.sill_ = phis[0]
 		#
+		print(f'The prior sill estimate is {self.sill_}')
 		#fit best lss
 		#
 		ls_combinations = list(itertools.product(lss, lss, rots))
