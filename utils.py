@@ -1600,6 +1600,8 @@ def _strucOracle_PCA(
     verb = True
 ):
     #Setup
+    if isinstance(U, np.ndarray):
+        U = torch.from_numpy(U).to(torch.float32)
     #
     m = Y_da.shape[0]
     T = Y_da.shape[1]
