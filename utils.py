@@ -1585,3 +1585,98 @@ def _construct_omega_matrix(da, k_pos=12, k_neg=50, lambda_neg=1.0, random_state
     Omega = A_pos - lambda_neg * A_neg
     
     return _convert_S_tensor(Omega.tocsr())
+
+def _strucOracle_PCA(
+    Y_da,
+    U,
+    k: int,
+    phi = 1,
+    lr_s = 1e-1,
+    lr_l = 1e-2,
+    df = 1,
+    init_sigma = 1,
+    max_em_iter: int = 20,
+    tol_em: float = 1e-5,
+    verb = True
+):
+    #Setup
+    #
+    m = Y_da.shape[0]
+    T = Y_da.shape[1]
+    Y = torch.tensor(Y_da.values, dtype=torch.float32)
+    term1 = (Y**2).sum()
+    #
+    # 3) initialize
+    np.random.seed(42)
+    ULVT = randomized_svd(Y_da.values, n_components=k,n_iter=1)
+    Lams = ULVT[1]**2/T
+    sigma2 = (term1.numpy()/T - np.sum(Lams))/(m-k)
+    L_approx = (Lams - sigma2)**0.5
+    L_diag = torch.tensor(L_approx, dtype=torch.float32, requires_grad=True) 
+    if sigma2<=0:
+        sigma2 = 0.01
+    sigma = torch.tensor(sigma2**0.5, dtype=torch.float32, requires_grad=True)
+    #
+    prev_ll = -torch.inf
+    #
+    sigma2 = sigma**2
+    #
+    log_sigma = torch.nn.Parameter(torch.log(sigma.clone().detach()))
+    log_L_diag = torch.nn.Parameter(torch.log(L_diag.clone().detach()))
+    optimizer = torch.optim.Adam([log_sigma, log_L_diag], lr=lr_s)
+    #
+    for iteration in range(max_em_iter):        
+        #
+        # E-step
+        with torch.no_grad():
+            #
+            M = (L_diag**2 + sigma2)     #W.T @ W  +  sigma2 * torch.eye(k,dtype=torch.float32)
+            M_inv = torch.diag(1/M) #torch.linalg.inv(M)
+            #
+            Ez = M_inv @ (U * L_diag.unsqueeze(0)).T @ Y
+            Ezz = T * sigma2 * M_inv + Ez @ Ez.T 
+        #
+        #
+        pls = float('inf')
+        for i in range(100): # Allow more iterations since M-steps need to converge
+            optimizer.zero_grad()
+            sigma = torch.exp(log_sigma)
+            L_diag = torch.exp(log_L_diag)
+            loss = _oracle_neg_lik_samp(sigma, L_diag, U, Ez, Ezz, m, T, Y, term1, k) 
+            ls = loss.item()
+            if abs(pls - ls) / (abs(pls) + 1e-8) < 1e-5: 
+                break
+                
+            pls = ls
+            loss.backward()
+            optimizer.step()
+        sigma2 = sigma**2
+        #
+        if (abs(ls - prev_ll) < tol_em * abs(prev_ll)) and (iteration > 5):
+            break
+        prev_ll = ls        
+    #
+    #
+    L_diag, indices = torch.sort(L_diag, descending=True)
+    U = U[:, indices]
+    Ez = Ez[indices, :]
+    return U, L_diag, Ez, sigma2,ls
+
+def _oracle_neg_lik_samp(sigma, L_diag, U, Ez, Ezz, m, T, Y, term1,k):
+    #
+    sigma2 = sigma**2
+    L2 = L_diag**2
+    lambda_vals = 1.0 / (L2 + sigma2) # (L^2 + s^2)^-1
+    t1 = -T * (m / 2.0) * torch.log(sigma2)
+    #
+    UL = U * L_diag.unsqueeze(0)
+    trace_A = 2.0 * torch.sum((Y.t() @ UL) * Ez.t())
+    Ezz_diag = torch.diagonal(Ezz, dim1=-2, dim2=-1)
+    trace_B = torch.sum(Ezz_diag * L2.unsqueeze(0))
+    t2 = -0.5 * (1/sigma2) * (term1 - trace_A + trace_B)
+    #
+    terms = {'t1': t1, 't2': t2}
+    total = sum(terms.values())
+    #
+    return -total/T
+
