@@ -89,8 +89,10 @@ class SOFM:
                 'factor': np.arange(k)
             }
         )
-        W_da = W_da.unstack()
-        W_da = W_da.sortby('lon', 'lat')
+        # W_da = W_da.unstack()
+        # W_da = W_da.sortby('lon', 'lat')
+        W_da = W_da.set_index(location=['lat', 'lon']).unstack('location')
+        W_da = W_da.sortby(['lat', 'lon'])
 
         ncols = k
         nrows = 1
