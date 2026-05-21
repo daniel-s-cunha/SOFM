@@ -144,6 +144,8 @@ class SpatialCovariance:
 					cbar_kwargs={'format': '%.1f'})
 		format_ax(axes[3], 'Anisotropy ratio')
 		
+		for ax in axes:
+			ax.invert_yaxis()
 		plt.tight_layout()
 		return fig
 
