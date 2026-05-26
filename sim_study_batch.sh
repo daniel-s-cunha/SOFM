@@ -3,7 +3,7 @@
 #$ -P modislc
 #$ -N sim_study_batch
 #$ -pe omp 1
-#$ -t 1-1600
+#$ -t 1-800
 #$ -e /projectnb/modislc/users/danc/SOFM/logs/
 #$ -o /projectnb/modislc/users/danc/SOFM/logs/
 
