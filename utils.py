@@ -193,10 +193,11 @@ def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, no
     #
     if mode=='independent':
         A = np.random.normal(size=(m,k))
-        Q, R = np.linalg.qr(Z)
+        Q, R = np.linalg.qr(A)
         signs = np.sign(np.diag(R))
         signs[signs == 0] = 1
         U = Q*signs
+        U = torch.tensor(U,dtype=torch.float32)
     else:
         _, U = torch.lobpcg(A=Sigma, k=k, largest=True)
     #
