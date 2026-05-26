@@ -102,15 +102,14 @@ class SOFM:
             col_wrap=None,
             cmap='RdBu_r', 
             add_colorbar=False,
-            figsize=(4 * ncols, 4),
-            robust=True
+            figsize=(4 * ncols, 4)
         )
 
         # Clean up formatting
         g.set_titles(template="")
         g.set_axis_labels("", "")
         for ax in g.axes.flat:
-            ax.invert_yaxis()
+            #ax.invert_yaxis()
 
         return g.fig
 
