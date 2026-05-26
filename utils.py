@@ -161,9 +161,6 @@ def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, no
         lats = da.lat.values
         lons = da.lon.values
         N = len(lats)
-        alpha_lat, alpha_lon, t_u, t_v = _gen_synth_spline(
-            lats, lons, num_interior_knots=5, mode=mode
-        )
         if mode=='independent':
             crow_indices = torch.arange(m + 1)
             col_indices = torch.arange(m)
@@ -178,6 +175,9 @@ def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, no
             lam_lon = 0
             rot = 0
         else:
+            alpha_lat, alpha_lon, t_u, t_v = _gen_synth_spline(
+                lats, lons, num_interior_knots=5, mode=mode
+            )
             if mode=='circle':
                 alpha_rot = np.zeros(alpha_lat.shape[0])
             elif mode=='gradient':
