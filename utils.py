@@ -166,26 +166,47 @@ def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, no
         )
         if mode=='circle':
             alpha_rot = np.zeros(alpha_lat.shape[0])
-        if mode=='gradient':
+        elif mode=='gradient':
             alpha_rot = np.zeros(alpha_lat.shape[0])
         else:
             alpha_rot = alpha_lat/4 #this should yield rotations less than pi/4 ~= np.log(5)/4
 
-        Sigma,lam_lat,lam_lon,rot = _construct_nonstat_cov(
-            lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v, variance=phi, max_lag=max_lag
-        )
+        if mode=='independent':
+            crow_indices = torch.arange(m + 1)
+            col_indices = torch.arange(m)
+            values = torch.ones(m)
+            Sigma = torch.sparse_csr_tensor(
+                crow_indices, 
+                col_indices, 
+                values, 
+                size=(m, m)
+            )
+            lam_lat = 0
+            lam_lon = 0
+            rot = 0
+        else:
+            Sigma,lam_lat,lam_lon,rot = _construct_nonstat_cov(
+                lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v, variance=phi, max_lag=max_lag
+            )
 
     else:
         Sigma = _compute_spat_cov_rs(da, phi=phi, length_scale=ls1, length_scale2=ls2, rot=0, max_lag=max_lag)
     #
-    _, U = torch.lobpcg(A=Sigma, k=k, largest=True)
+    if mode=='independent':
+        A = np.random.normal(size=(m,k))
+        Q, R = np.linalg.qr(Z)
+        signs = np.sign(np.diag(R))
+        signs[signs == 0] = 1
+        U = Q*signs
+    else:
+        _, U = torch.lobpcg(A=Sigma, k=k, largest=True)
     #
     if sigma == -1:
         sigma, L_diag = _optimize_log_prior(U, Sigma, phi, m, k)
     else:
         _, L_diag = _optimize_log_prior(U, Sigma, phi, m, k)
     #
-    mt = np.random.uniform(0.75,1.25)
+    mt = np.random.uniform(0.75,1.25) #make L random
     L_diag = L_diag**mt
     #
     T_new = n_samples
