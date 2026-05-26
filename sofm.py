@@ -108,9 +108,8 @@ class SOFM:
         # Clean up formatting
         g.set_titles(template="")
         g.set_axis_labels("", "")
-        for ax in g.axes.flat:
-            #ax.invert_yaxis()
-
+        # for ax in g.axes.flat:
+        #     ax.invert_yaxis()
         return g.fig
 
 
