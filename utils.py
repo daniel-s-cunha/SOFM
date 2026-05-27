@@ -857,26 +857,57 @@ def _neg_lik_val(sigma, L_diag, U, L_diag_t, Ez, Ezz, m, T, Y, term1, term12, Up
     total = t1 + t2 + t3 + t4 + t5 + t6 + t7 + t8
     return -total/(T*m)
 
-def _comp_nll(Yp,Y,U,L_diag,sigma2,M_inv,m,m0,mask_ids):
+# def _comp_nll(Yp,Y,U,L_diag,sigma2,M_inv,m,m0,mask_ids):
+#     T = Y.shape[1]
+#     mask_ids = mask_ids[m0:] #mask_ids should already be permuted with observed first, masked second
+#     #
+#     Uo = U[0:m0,:]
+#     Up = U[m0:,:]
+#     L = L_diag.unsqueeze(0)
+#     #
+#     Eyp = (Up * L) @ M_inv @ (Uo * L).T @ Y
+#     # nll = torch.mean((Yp - Eyp)**2)
+#     #
+#     nll = ((Yp - Eyp)**2).sum(dim=1).detach().numpy()/T
+#     mask_ids = mask_ids.numpy()
+#     #
+#     nll_df = pd.DataFrame({'mask_id':mask_ids, 'nll':nll})
+#     nlls = nll_df.groupby('mask_id')['nll'].mean()
+#     #
+#     nll_tot = ((Yp - Eyp)**2).mean()
+#     #
+#     return nlls,nll_tot
+
+def _comp_nll(Yp, Y, U, L_diag, sigma2, M_inv, m, m0, mask_ids):
     T = Y.shape[1]
-    mask_ids = mask_ids[m0:] #mask_ids should already be permuted with observed first, masked second
-    #
-    Uo = U[0:m0,:]
-    Up = U[m0:,:]
-    L = L_diag.unsqueeze(0)
+    mask_ids_p = mask_ids[m0:] 
+    Uo = U[0:m0, :]
+    Up = U[m0:, :]
+    L = L_diag.unsqueeze(0)    
     #
     Eyp = (Up * L) @ M_inv @ (Uo * L).T @ Y
-    # nll = torch.mean((Yp - Eyp)**2)
     #
-    nll = ((Yp - Eyp)**2).sum(dim=1).detach().numpy()/T
-    mask_ids = mask_ids.numpy()
+    A = Up * L
+    B = A @ M_inv
+    var_p = sigma2 * torch.sum(B * A, dim=1) + sigma2
+    covYp_full = sigma2 * B @ A.T + sigma2 * torch.eye(m - m0, device=Y.device)
     #
-    nll_df = pd.DataFrame({'mask_id':mask_ids, 'nll':nll})
-    nlls = nll_df.groupby('mask_id')['nll'].mean()
+    ch_tot = torch.linalg.cholesky(covYp_full)
+    precYp_tot = torch.cholesky_solve((Yp - Eyp), ch_tot)
+    mahala_tot = 0.5 * torch.trace((Yp - Eyp).T @ precYp_tot)
+    norm_const_tot = 0.5 * T * torch.linalg.slogdet(covYp_full)[1] 
+    nll_tot = (mahala_tot + norm_const_tot).item() / ((m - m0) * T)
     #
-    nll_tot = ((Yp - Eyp)**2).mean()
-    #
-    return nlls,nll_tot
+    var_p_expanded = var_p.unsqueeze(1)
+    mahala_blocks = 0.5 * torch.sum((Yp - Eyp)**2, dim=1) / var_p 
+    norm_const_blocks = 0.5 * T * torch.log(var_p)
+    nll_blocks = (mahala_blocks + norm_const_blocks) / T
+    nll_blocks_np = nll_blocks.detach().cpu().numpy()
+    mask_ids_np = mask_ids_p.detach().cpu().numpy()
+
+    nlls_series = pd.Series(data=nll_blocks_np, index=mask_ids_np, name='nll')
+    
+    return nlls_series, nll_tot
 
 def _fit_spline(da, data_array, gamma_grid=np.logspace(-1, 3, 15), knot_grid=[10], degree=3):
     ls_lat = data_array[:, 0]
