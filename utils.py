@@ -179,11 +179,11 @@ def _gen_spat_da(sq_len, k=3, n_samples = 1000, max_lag=30, ls1 = 1, ls2 = 1, no
                 lats, lons, num_interior_knots=5, mode=mode
             )
             if mode=='circle':
-                alpha_rot = np.zeros(alpha_lat.shape[0])
+                alpha_rot = alpha_lat/2 #np.zeros(alpha_lat.shape[0])
             elif mode=='gradient':
-                alpha_rot = np.zeros(alpha_lat.shape[0])
+                alpha_rot = alpha_lat/2 #np.zeros(alpha_lat.shape[0])
             else:
-                alpha_rot = alpha_lat/4 #this should yield rotations less than pi/4 ~= np.log(5)/4
+                alpha_rot = alpha_lat/2 #this should yield rotations less than pi/2 ~= np.log(5)/2
 
             Sigma,lam_lat,lam_lon,rot = _construct_nonstat_cov(
                 lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v, variance=phi, max_lag=max_lag
@@ -1464,8 +1464,6 @@ def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v
 #         raise ValueError("mode must be 'gradient', 'random', or 'constant'")
         
 #     return alpha_lat, alpha_lon, t_u, t_v
-
-import numpy as np
 
 def _gen_synth_spline(lats, lons, num_interior_knots=5, degree=3, mode='gradient'):
     """
