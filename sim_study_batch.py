@@ -29,7 +29,7 @@ def main():
     sample_sizes = [200, 500, 1000, 5000, 10000]
     sigmas = [5,10]
     max_lags = [2,20]
-    prior_covs = [0]#[0,1,2]#["circle","constant","gradient"]
+    prior_covs = [0,1,2]#[0]#["circle","constant","gradient"]
     growings = [True,False]
     replicates = [j for j in range(20)]
     #
@@ -43,7 +43,7 @@ def main():
     print(f"Running Task {args.task_id}: n_samples = {n_samples}, sigma={sigma}, max_lag={max_lag}, prior_cov={prior_cov}, growing={growing}, replicate={replicate}")
 
     torch.set_num_threads(1)
-    prior_covs_n = ['independent'] #["circle","constant","gradient"]
+    prior_covs_n = ["circle","constant","gradient"]#['independent'] #["circle","constant","gradient"]
     try:
         sq_len = 20
         print(f"\n{'='*40}")
@@ -113,10 +113,10 @@ def main():
         rot_mse = -999
     #
     results = np.array([[n_samples, sigma, max_lag, prior_cov, growing, replicate, U_loss, L_loss, sigma_loss, lat_mse, lon_mse, rot_mse]])
-    out_dir = '/projectnb/modislc/users/danc/SOFM/sofm_sim_study2/'
+    out_dir = '/projectnb/modislc/users/danc/SOFM/sofm_sim_study/'
     os.makedirs(out_dir, exist_ok=True)
     
-    filename = f'results_n_samples{n_samples}_sigma{sigma}_max_lag{max_lag}_prior_cov{prior_cov}_growing{growing}_replicate{replicate}_nonstat_v1.csv'
+    filename = f'results_n_samples{n_samples}_sigma{sigma}_max_lag{max_lag}_prior_cov{prior_cov}_growing{growing}_replicate{replicate}_nonstat_v0.csv'
     np.savetxt(os.path.join(out_dir, filename), results, delimiter=',')
     print(f"Task complete. Saved to {filename}")
 
