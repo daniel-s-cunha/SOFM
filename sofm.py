@@ -78,7 +78,7 @@ class SOFM:
         self.Ez_ = Ez
         self.sigma2_ = sigma2.detach()
 
-    def plot_loadings(self):
+    def plot_loadings(self,invert=True):
         k = self.U_.shape[1]
         
         W_da = xr.DataArray(
@@ -108,8 +108,9 @@ class SOFM:
         # Clean up formatting
         g.set_titles(template="")
         g.set_axis_labels("", "")
-        # for ax in g.axes.flat:
-        #     ax.invert_yaxis()
+        if invert:
+            for ax in g.axes.flat:
+                ax.invert_yaxis()
         return g.fig
 
 

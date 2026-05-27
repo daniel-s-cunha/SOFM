@@ -89,7 +89,7 @@ class SpatialCovariance:
 		M_da.plot(add_colorbar=False)
 		plt.show()
 
-	def plot_nonstationary_spatcov(self):
+	def plot_nonstationary_spatcov(self, invert=True):
 		if not self.nonstationary:
 			raise ValueError(
 				"This plot can only be used when nonstationary=True. "
@@ -143,9 +143,9 @@ class SpatialCovariance:
 		W_da4.plot(ax=axes[3], cmap=cm.plasma, add_colorbar=True, robust=True,
 					cbar_kwargs={'format': '%.1f'})
 		format_ax(axes[3], 'Anisotropy ratio')
-		
-		# for ax in axes:
-		# 	ax.invert_yaxis()
+		if invert:
+			for ax in axes:
+				ax.invert_yaxis()
 		plt.tight_layout()
 		return fig
 
