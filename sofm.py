@@ -78,7 +78,7 @@ class SOFM:
         self.Ez_ = Ez
         self.sigma2_ = sigma2.detach()
 
-    def plot_loadings(self,invert=True):
+    def plot_loadings(self,invert=True, robust=False):
         k = self.U_.shape[1]
         
         W_da = xr.DataArray(
@@ -102,7 +102,8 @@ class SOFM:
             col_wrap=None,
             cmap='RdBu_r', 
             add_colorbar=False,
-            figsize=(4 * ncols, 4)
+            figsize=(4 * ncols, 4),
+            robust=robust
         )
 
         # Clean up formatting
