@@ -174,7 +174,7 @@ class SpatialCovariance:
 		Sigma = utils._compute_spat_cov_rs(
 			self.data, 
 			phi=1, 
-			length_scale=5,
+			length_scale=1,
 			max_lag=self.max_lag
 		)        
 		#
