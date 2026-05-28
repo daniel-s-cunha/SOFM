@@ -89,7 +89,7 @@ class SpatialCovariance:
 		M_da.plot(add_colorbar=False)
 		plt.show()
 
-	def plot_nonstationary_spatcov(self, invert=True):
+	def plot_nonstationary_spatcov(self, invert=True, robust=False):
 		if not self.nonstationary:
 			raise ValueError(
 				"This plot can only be used when nonstationary=True. "
@@ -125,12 +125,12 @@ class SpatialCovariance:
 			ax.tick_params(labelsize=10)
 
 		# 1. Latitudinal
-		W_da.plot(ax=axes[0], cmap=cm.plasma, #vmin=3, vmax=5, 
+		W_da.plot(ax=axes[0], cmap=cm.plasma, robust=robust, #vmin=3, vmax=5, 
 					add_colorbar=True, cbar_kwargs={'format': '%.1f'})
 		format_ax(axes[0], 'Latitudinal length scale', is_first=True)
 		
 		# 2. Longitudinal
-		W_da2.plot(ax=axes[1], cmap=cm.plasma, #vmin=3, vmax=5, 
+		W_da2.plot(ax=axes[1], cmap=cm.plasma, robust=robust,#vmin=3, vmax=5, 
 					add_colorbar=True, cbar_kwargs={'format': '%.1f'})
 		format_ax(axes[1], 'Longitudinal length scale')
 		
