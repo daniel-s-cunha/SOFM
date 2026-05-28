@@ -114,7 +114,7 @@ class SpatialCovariance:
 		# --- Plotting Configuration ---
 		title_size = 24
 		label_size = 14
-		fig, axes = plt.subplots(1, 3, figsize=(22, 6)) # Slightly larger fig for larger text
+		fig, axes = plt.subplots(1, 2, figsize=(12, 6)) # Slightly larger fig for larger text
 		
 		# Helper to apply labels consistently
 		def format_ax(ax, title, is_first=False):
@@ -139,10 +139,10 @@ class SpatialCovariance:
 		# 			add_colorbar=True, cbar_kwargs={'format': '%.2f'})
 		# format_ax(axes[2], 'Rotation')
 		
-		# 4. Anisotropy
-		W_da4.plot(ax=axes[2], cmap=cm.plasma, add_colorbar=True, robust=True,
-					cbar_kwargs={'format': '%.1f'})
-		format_ax(axes[2], 'Anisotropy ratio')
+		# # 4. Anisotropy
+		# W_da4.plot(ax=axes[2], cmap=cm.plasma, add_colorbar=True, robust=True,
+		# 			cbar_kwargs={'format': '%.1f'})
+		# format_ax(axes[2], 'Anisotropy ratio')
 		if invert:
 			for ax in axes:
 				ax.invert_yaxis()
