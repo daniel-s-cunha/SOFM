@@ -69,7 +69,7 @@ def main():
         # 2. Initialize and Fit Model
         # Note: Ensure block_sz matches your init parameter name (block_sz vs block_sz)
         mod = sofm.SOFM(da, n_components=3, max_lag = max_lag, nonstationary=True, block_sz=1, n_blocks=int(sq_len**2/9),n_cores=1)
-        mod.fit(lss = [1,3,5],phis=[10**j for j in range(5)]+[5**j for j in range(5)],rots=[0,np.pi/8,2*np.pi/8,3*np.pi/8])
+        mod.fit(lss = [1,3,5],phis=[10**j for j in range(5)]+[5**j for j in range(5)],rots=[0])#[0,np.pi/8,2*np.pi/8,3*np.pi/8])
         sc = mod.spatcov_
         if prior_covs_n[prior_cov]=='independent':
             lat_mse = 0
@@ -113,7 +113,7 @@ def main():
         rot_mse = -999
     #
     results = np.array([[n_samples, sigma, max_lag, prior_cov, growing, replicate, U_loss, L_loss, sigma_loss, lat_mse, lon_mse, rot_mse]])
-    out_dir = '/projectnb/modislc/users/danc/SOFM/sofm_sim_study/'
+    out_dir = '/projectnb/modislc/users/danc/SOFM/sofm_sim_study2/'
     os.makedirs(out_dir, exist_ok=True)
     
     filename = f'results_n_samples{n_samples}_sigma{sigma}_max_lag{max_lag}_prior_cov{prior_cov}_growing{growing}_replicate{replicate}_nonstat_v0.csv'
