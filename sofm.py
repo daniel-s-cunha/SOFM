@@ -102,7 +102,7 @@ class SOFM:
             col_wrap=None,
             cmap='RdBu_r', 
             add_colorbar=False,
-            figsize=(4 * ncols, 4),
+            figsize=(3 * ncols, 3.5),
             robust=robust
         )
 
