@@ -228,8 +228,13 @@ class SpatialCovariance:
 			self.sill_ = phis[0]
 		#
 		print(f'The prior sill estimate is {self.sill_}')
-		#fit best lss
+		n_centers = len(self.holdout_ids_)
 		#
+		k_tot = n_centers / 3.0
+		k_1d = np.sqrt(k_tot)
+		opt_knots = int(max(3, np.round(k_1d - 3 + 1)))
+		#
+		#fit best lss
 		ls_combinations = list(itertools.product(lss, lss, rots))
 		init_phi = self.sill_
 		#
