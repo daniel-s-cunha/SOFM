@@ -764,7 +764,130 @@ def _comp_nll(Yp, Y, U, L_diag, sigma2, M_inv, m, m0, mask_ids):
     
     return nlls_series, nll_tot
 
-def _fit_spline(da, data_array, gamma_grid=np.logspace(-1, 3, 15), knot_grid=[5], degree=3):#knot_grid=[10]
+# def _fit_spline(da, data_array, gamma_grid=np.logspace(-1, 3, 15), knot_grid=[5], degree=3):#knot_grid=[10]
+#     ls_lat = data_array[:, 0]
+#     ls_lon = data_array[:, 1]
+#     rot_hat = data_array[:, 2]
+#     lats = data_array[:, 3]
+#     lons = data_array[:, 4]
+#     domain_lats = da.lat.values
+#     domain_lons = da.lon.values
+    
+#     y_lat = np.log(ls_lat)
+#     y_lon = np.log(ls_lon)
+#     y_rot = rot_hat
+    
+#     N = len(lats)
+    
+#     pad_lat = (np.max(domain_lats) - np.min(domain_lats)) * 0.01
+#     pad_lon = (np.max(domain_lons) - np.min(domain_lons)) * 0.01
+    
+#     domain_lat_min, domain_lat_max = np.min(domain_lats) - pad_lat, np.max(domain_lats) + pad_lat
+#     domain_lon_min, domain_lon_max = np.min(domain_lons) - pad_lon, np.max(domain_lons) + pad_lon
+
+#     best_gcv_lat = np.inf
+#     best_gcv_lon = np.inf
+#     best_gcv_rot = np.inf
+#     best_params = None
+#     best_alpha_lat = None
+#     best_alpha_lon = None
+#     best_alpha_rot = None
+#     best_t_u = None
+#     best_t_v = None
+
+#     # Outer loop: Number of knots
+#     for num_knots in knot_grid:
+#         u_knots = np.linspace(domain_lat_min, domain_lat_max, num_knots)
+#         t_u = np.r_[[u_knots[0]] * degree, u_knots, [u_knots[-1]] * degree]
+        
+#         v_knots = np.linspace(domain_lon_min, domain_lon_max, num_knots)
+#         t_v = np.r_[[v_knots[0]] * degree, v_knots, [v_knots[-1]] * degree]
+        
+#         B_u = BSpline.design_matrix(lats, t_u, degree).toarray()
+#         B_v = BSpline.design_matrix(lons, t_v, degree).toarray()
+        
+#         K_u = B_u.shape[1]
+#         K_v = B_v.shape[1]
+#         K_total = K_u * K_v
+        
+#         B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, K_total)
+        
+#         D_u = np.diff(np.eye(K_u), n=2, axis=0)
+#         D_v = np.diff(np.eye(K_v), n=2, axis=0)
+        
+#         Du_T_Du = D_u.T @ D_u
+#         Dv_T_Dv = D_v.T @ D_v
+        
+#         P_u = np.kron(np.eye(K_v), Du_T_Du)
+#         P_v = np.kron(Dv_T_Dv, np.eye(K_u))
+        
+#         BtB = B.T @ B
+#         rhs_lat = B.T @ y_lat
+#         rhs_lon = B.T @ y_lon
+#         rhs_rot = B.T @ y_rot
+
+#         # Inner loop: Smoothing parameters
+#         for g_u, g_v in itertools.product(gamma_grid, gamma_grid):
+#             lhs = BtB + g_u * P_u + g_v * P_v
+            
+#             try:
+#                 # FIX 2: Use linear solve instead of explicit inversion.
+#                 # Solves LHS * H = BtB --> H = LHS^-1 * BtB
+#                 # The trace of H is the exact Effective Degrees of Freedom
+#                 H_core = np.linalg.solve(lhs, BtB)
+#                 edf = np.trace(H_core)
+                
+#                 # Get the alpha coefficients
+#                 alpha_lat = np.linalg.solve(lhs, rhs_lat)
+#                 alpha_lon = np.linalg.solve(lhs, rhs_lon)
+#                 alpha_rot = np.linalg.solve(lhs, rhs_rot)
+#             except np.linalg.LinAlgError:
+#                 continue 
+            
+#             y_hat_lat = B @ alpha_lat
+#             y_hat_lon = B @ alpha_lon
+#             y_hat_rot = B @ alpha_rot
+            
+#             sse_lat = np.sum((y_lat - y_hat_lat)**2)
+#             sse_lon = np.sum((y_lon - y_hat_lon)**2)
+#             sse_rot = np.sum((y_rot - y_hat_rot)**2)
+            
+#             # FIX 3: GCV Inflation factor to aggressively penalize undersmoothing
+#             inflation_factor = 1#1.4
+#             effective_N_penalty = inflation_factor * edf
+            
+#             # Guard against the squared denominator flipping negative values to positive
+#             if effective_N_penalty >= N:
+#                 continue
+                
+#             denom = (1 - effective_N_penalty / N)**2
+            
+#             gcv_lat = (sse_lat / N) / denom
+#             gcv_lon = (sse_lon / N) / denom
+#             gcv_rot = (sse_rot / N) / denom
+            
+#             total_gcv = gcv_lat + gcv_lon + gcv_rot
+            
+#             if  gcv_lat < best_gcv_lat:
+#                 best_gcv_lat = gcv_lat
+#                 best_params_lat = (g_u, g_v, num_knots)
+#                 best_alpha_lat = alpha_lat
+#             if  gcv_lon < best_gcv_lon:
+#                 best_gcv_lon = gcv_lon
+#                 best_params_lon = (g_u, g_v, num_knots)
+#                 best_alpha_lon = alpha_lon
+#             if  gcv_rot < best_gcv_rot:
+#                 best_gcv_rot = gcv_rot
+#                 best_params_rot = (g_u, g_v, num_knots)
+#                 best_alpha_rot = alpha_rot
+
+#     print(f"Latitudinal spline | Knots: {best_params_lat[2]} | gamma_u: {best_params_lat[0]:.2e} | gamma_v: {best_params_lat[1]:.2e}")
+#     print(f"Longitudinal spline | Knots: {best_params_lon[2]} | gamma_u: {best_params_lon[0]:.2e} | gamma_v: {best_params_lon[1]:.2e}")
+#     print(f"Rotational spline | Knots: {best_params_rot[2]} | gamma_u: {best_params_rot[0]:.2e} | gamma_v: {best_params_rot[1]:.2e}")
+
+#     return best_alpha_lat, best_alpha_lon, best_alpha_rot, t_u, t_v
+
+def _fit_spline(da, data_array, optimal_knots, gamma_grid=np.logspace(-1, 3, 15), degree=3):
     ls_lat = data_array[:, 0]
     ls_lon = data_array[:, 1]
     rot_hat = data_array[:, 2]
@@ -788,105 +911,108 @@ def _fit_spline(da, data_array, gamma_grid=np.logspace(-1, 3, 15), knot_grid=[5]
     best_gcv_lat = np.inf
     best_gcv_lon = np.inf
     best_gcv_rot = np.inf
-    best_params = None
+    
+    # Explicitly initialize these to avoid NameError if the loop fails
+    best_params_lat = None
+    best_params_lon = None
+    best_params_rot = None
+    
     best_alpha_lat = None
     best_alpha_lon = None
     best_alpha_rot = None
     best_t_u = None
     best_t_v = None
 
-    # Outer loop: Number of knots
-    for num_knots in knot_grid:
-        u_knots = np.linspace(domain_lat_min, domain_lat_max, num_knots)
-        t_u = np.r_[[u_knots[0]] * degree, u_knots, [u_knots[-1]] * degree]
-        
-        v_knots = np.linspace(domain_lon_min, domain_lon_max, num_knots)
-        t_v = np.r_[[v_knots[0]] * degree, v_knots, [v_knots[-1]] * degree]
-        
-        B_u = BSpline.design_matrix(lats, t_u, degree).toarray()
-        B_v = BSpline.design_matrix(lons, t_v, degree).toarray()
-        
-        K_u = B_u.shape[1]
-        K_v = B_v.shape[1]
-        K_total = K_u * K_v
-        
-        B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, K_total)
-        
-        D_u = np.diff(np.eye(K_u), n=2, axis=0)
-        D_v = np.diff(np.eye(K_v), n=2, axis=0)
-        
-        Du_T_Du = D_u.T @ D_u
-        Dv_T_Dv = D_v.T @ D_v
-        
-        P_u = np.kron(np.eye(K_v), Du_T_Du)
-        P_v = np.kron(Dv_T_Dv, np.eye(K_u))
-        
-        BtB = B.T @ B
-        rhs_lat = B.T @ y_lat
-        rhs_lon = B.T @ y_lon
-        rhs_rot = B.T @ y_rot
+    # Use the dynamically calculated optimal_knots directly
+    u_knots = np.linspace(domain_lat_min, domain_lat_max, optimal_knots)
+    t_u = np.r_[[u_knots[0]] * degree, u_knots, [u_knots[-1]] * degree]
+    
+    v_knots = np.linspace(domain_lon_min, domain_lon_max, optimal_knots)
+    t_v = np.r_[[v_knots[0]] * degree, v_knots, [v_knots[-1]] * degree]
+    
+    B_u = BSpline.design_matrix(lats, t_u, degree).toarray()
+    B_v = BSpline.design_matrix(lons, t_v, degree).toarray()
+    
+    K_u = B_u.shape[1]
+    K_v = B_v.shape[1]
+    K_total = K_u * K_v
+    
+    B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, K_total)
+    
+    D_u = np.diff(np.eye(K_u), n=2, axis=0)
+    D_v = np.diff(np.eye(K_v), n=2, axis=0)
+    
+    Du_T_Du = D_u.T @ D_u
+    Dv_T_Dv = D_v.T @ D_v
+    
+    P_u = np.kron(np.eye(K_v), Du_T_Du)
+    P_v = np.kron(Dv_T_Dv, np.eye(K_u))
+    
+    BtB = B.T @ B
+    rhs_lat = B.T @ y_lat
+    rhs_lon = B.T @ y_lon
+    rhs_rot = B.T @ y_rot
 
-        # Inner loop: Smoothing parameters
-        for g_u, g_v in itertools.product(gamma_grid, gamma_grid):
-            lhs = BtB + g_u * P_u + g_v * P_v
+    # Inner loop: Smoothing parameters
+    for g_u, g_v in itertools.product(gamma_grid, gamma_grid):
+        lhs = BtB + g_u * P_u + g_v * P_v
+        
+        try:
+            # FIX 2: Use linear solve instead of explicit inversion.
+            # Solves LHS * H = BtB --> H = LHS^-1 * BtB
+            # The trace of H is the exact Effective Degrees of Freedom
+            H_core = np.linalg.solve(lhs, BtB)
+            edf = np.trace(H_core)
             
-            try:
-                # FIX 2: Use linear solve instead of explicit inversion.
-                # Solves LHS * H = BtB --> H = LHS^-1 * BtB
-                # The trace of H is the exact Effective Degrees of Freedom
-                H_core = np.linalg.solve(lhs, BtB)
-                edf = np.trace(H_core)
-                
-                # Get the alpha coefficients
-                alpha_lat = np.linalg.solve(lhs, rhs_lat)
-                alpha_lon = np.linalg.solve(lhs, rhs_lon)
-                alpha_rot = np.linalg.solve(lhs, rhs_rot)
-            except np.linalg.LinAlgError:
-                continue 
+            # Get the alpha coefficients
+            alpha_lat = np.linalg.solve(lhs, rhs_lat)
+            alpha_lon = np.linalg.solve(lhs, rhs_lon)
+            alpha_rot = np.linalg.solve(lhs, rhs_rot)
+        except np.linalg.LinAlgError:
+            continue 
+        
+        y_hat_lat = B @ alpha_lat
+        y_hat_lon = B @ alpha_lon
+        y_hat_rot = B @ alpha_rot
+        
+        sse_lat = np.sum((y_lat - y_hat_lat)**2)
+        sse_lon = np.sum((y_lon - y_hat_lon)**2)
+        sse_rot = np.sum((y_rot - y_hat_rot)**2)
+        
+        # FIX 3: GCV Inflation factor to aggressively penalize undersmoothing
+        inflation_factor = 1  # 1.4
+        effective_N_penalty = inflation_factor * edf
+        
+        # Guard against the squared denominator flipping negative values to positive
+        if effective_N_penalty >= N:
+            continue
             
-            y_hat_lat = B @ alpha_lat
-            y_hat_lon = B @ alpha_lon
-            y_hat_rot = B @ alpha_rot
-            
-            sse_lat = np.sum((y_lat - y_hat_lat)**2)
-            sse_lon = np.sum((y_lon - y_hat_lon)**2)
-            sse_rot = np.sum((y_rot - y_hat_rot)**2)
-            
-            # FIX 3: GCV Inflation factor to aggressively penalize undersmoothing
-            inflation_factor = 1#1.4
-            effective_N_penalty = inflation_factor * edf
-            
-            # Guard against the squared denominator flipping negative values to positive
-            if effective_N_penalty >= N:
-                continue
-                
-            denom = (1 - effective_N_penalty / N)**2
-            
-            gcv_lat = (sse_lat / N) / denom
-            gcv_lon = (sse_lon / N) / denom
-            gcv_rot = (sse_rot / N) / denom
-            
-            total_gcv = gcv_lat + gcv_lon + gcv_rot
-            
-            if  gcv_lat < best_gcv_lat:
-                best_gcv_lat = gcv_lat
-                best_params_lat = (g_u, g_v, num_knots)
-                best_alpha_lat = alpha_lat
-            if  gcv_lon < best_gcv_lon:
-                best_gcv_lon = gcv_lon
-                best_params_lon = (g_u, g_v, num_knots)
-                best_alpha_lon = alpha_lon
-            if  gcv_rot < best_gcv_rot:
-                best_gcv_rot = gcv_rot
-                best_params_rot = (g_u, g_v, num_knots)
-                best_alpha_rot = alpha_rot
+        denom = (1 - effective_N_penalty / N)**2
+        
+        gcv_lat = (sse_lat / N) / denom
+        gcv_lon = (sse_lon / N) / denom
+        gcv_rot = (sse_rot / N) / denom
+        
+        if gcv_lat < best_gcv_lat:
+            best_gcv_lat = gcv_lat
+            best_params_lat = (g_u, g_v, optimal_knots)
+            best_alpha_lat = alpha_lat
+        if gcv_lon < best_gcv_lon:
+            best_gcv_lon = gcv_lon
+            best_params_lon = (g_u, g_v, optimal_knots)
+            best_alpha_lon = alpha_lon
+        if gcv_rot < best_gcv_rot:
+            best_gcv_rot = gcv_rot
+            best_params_rot = (g_u, g_v, optimal_knots)
+            best_alpha_rot = alpha_rot
 
-    print(f"Latitudinal spline | Knots: {best_params_lat[2]} | gamma_u: {best_params_lat[0]:.2e} | gamma_v: {best_params_lat[1]:.2e}")
-    print(f"Longitudinal spline | Knots: {best_params_lon[2]} | gamma_u: {best_params_lon[0]:.2e} | gamma_v: {best_params_lon[1]:.2e}")
-    print(f"Rotational spline | Knots: {best_params_rot[2]} | gamma_u: {best_params_rot[0]:.2e} | gamma_v: {best_params_rot[1]:.2e}")
+    # Assuming best_params is guaranteed to be set if the function completes
+    if best_params_lat and best_params_lon and best_params_rot:
+        print(f"Latitudinal spline | Knots: {best_params_lat[2]} | gamma_u: {best_params_lat[0]:.2e} | gamma_v: {best_params_lat[1]:.2e}")
+        print(f"Longitudinal spline | Knots: {best_params_lon[2]} | gamma_u: {best_params_lon[0]:.2e} | gamma_v: {best_params_lon[1]:.2e}")
+        print(f"Rotational spline | Knots: {best_params_rot[2]} | gamma_u: {best_params_rot[0]:.2e} | gamma_v: {best_params_rot[1]:.2e}")
 
     return best_alpha_lat, best_alpha_lon, best_alpha_rot, t_u, t_v
-
 
 def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v, variance=1.0, max_lag=10, degree=3):
     N = len(lats)

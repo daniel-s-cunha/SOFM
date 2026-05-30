@@ -268,7 +268,7 @@ class SpatialCovariance:
 			final_results['mean_lon'].values
 		])
 		print("Fitting spline to the optimal length scales...")
-		self.alpha_lat_, self.alpha_lon_, self.alpha_rot_, self.t_u_, self.t_v_ = utils._fit_spline(self.data,self.minimizer_)
+		self.alpha_lat_, self.alpha_lon_, self.alpha_rot_, self.t_u_, self.t_v_ = utils._fit_spline(self.data,self.minimizer_, optimal_knots)
 		#fit with variance=1 so you only have to run it once and can instead adjust it by multiplying phi
 		self.spatcov_, self.lam_lat_, self.lam_lon_, self.rot_ = utils._construct_nonstat_cov(self.data.lat.values, self.data.lon.values, self.alpha_lat_, self.alpha_lon_, self.alpha_rot_, self.t_u_, self.t_v_, variance=1, max_lag=self.max_lag)
 		#
