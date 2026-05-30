@@ -113,7 +113,7 @@ def main():
         rot_mse = -999
     #
     results = np.array([[n_samples, sigma, max_lag, prior_cov, growing, replicate, U_loss, L_loss, sigma_loss, lat_mse, lon_mse, rot_mse]])
-    out_dir = '/projectnb/modislc/users/danc/SOFM/sofm_sim_study2/'
+    out_dir = '/projectnb/modislc/users/danc/SOFM/sofm_sim_study_knot5/'
     os.makedirs(out_dir, exist_ok=True)
     
     filename = f'results_n_samples{n_samples}_sigma{sigma}_max_lag{max_lag}_prior_cov{prior_cov}_growing{growing}_replicate{replicate}_nonstat_v0.csv'
