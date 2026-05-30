@@ -230,9 +230,8 @@ class SpatialCovariance:
 		print(f'The prior sill estimate is {self.sill_}')
 		n_centers = len(self.holdout_ids_)
 		#
-		k_tot = n_centers / 3.0
-		k_1d = np.sqrt(k_tot)
-		opt_knots = int(max(3, np.round(k_1d - 3 + 1)))
+		# k_1d = np.sqrt(n_centers)
+		# opt_knots = int(max(3, np.round(k_1d - 2)))
 		#
 		#fit best lss
 		ls_combinations = list(itertools.product(lss, lss, rots))
@@ -268,7 +267,7 @@ class SpatialCovariance:
 			final_results['mean_lon'].values
 		])
 		print("Fitting spline to the optimal length scales...")
-		self.alpha_lat_, self.alpha_lon_, self.alpha_rot_, self.t_u_, self.t_v_ = utils._fit_spline(self.data,self.minimizer_, opt_knots)
+		self.alpha_lat_, self.alpha_lon_, self.alpha_rot_, self.t_u_, self.t_v_ = utils._fit_spline(self.data,self.minimizer_)
 		#fit with variance=1 so you only have to run it once and can instead adjust it by multiplying phi
 		self.spatcov_, self.lam_lat_, self.lam_lon_, self.rot_ = utils._construct_nonstat_cov(self.data.lat.values, self.data.lon.values, self.alpha_lat_, self.alpha_lon_, self.alpha_rot_, self.t_u_, self.t_v_, variance=1, max_lag=self.max_lag)
 		#

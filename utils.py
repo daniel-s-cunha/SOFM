@@ -887,7 +887,7 @@ def _comp_nll(Yp, Y, U, L_diag, sigma2, M_inv, m, m0, mask_ids):
 
 #     return best_alpha_lat, best_alpha_lon, best_alpha_rot, t_u, t_v
 
-def _fit_spline(da, data_array, optimal_knots, gamma_grid=np.logspace(-1, 3, 15), degree=3):
+def _fit_spline(da, data_array, optimal_knots=20, gamma_grid=np.logspace(-1, 3, 15), degree=3):
     ls_lat = data_array[:, 0]
     ls_lon = data_array[:, 1]
     rot_hat = data_array[:, 2]
@@ -958,13 +958,9 @@ def _fit_spline(da, data_array, optimal_knots, gamma_grid=np.logspace(-1, 3, 15)
         lhs = BtB + g_u * P_u + g_v * P_v
         
         try:
-            # FIX 2: Use linear solve instead of explicit inversion.
-            # Solves LHS * H = BtB --> H = LHS^-1 * BtB
-            # The trace of H is the exact Effective Degrees of Freedom
             H_core = np.linalg.solve(lhs, BtB)
             edf = np.trace(H_core)
             
-            # Get the alpha coefficients
             alpha_lat = np.linalg.solve(lhs, rhs_lat)
             alpha_lon = np.linalg.solve(lhs, rhs_lon)
             alpha_rot = np.linalg.solve(lhs, rhs_rot)
