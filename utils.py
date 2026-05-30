@@ -413,7 +413,7 @@ def _spatPCA(
     trSigma = torch.tensor(phi*m, dtype = torch.float32)
     #
     # 3) initialize
-    np.random.seed(42)
+    #np.random.seed(42)
     ULVT = randomized_svd(Y_da.values, n_components=k,n_iter=1)
     U = torch.tensor(ULVT[0], dtype=torch.float32)
     SU = Sigma@U
@@ -887,7 +887,7 @@ def _comp_nll(Yp, Y, U, L_diag, sigma2, M_inv, m, m0, mask_ids):
 
 #     return best_alpha_lat, best_alpha_lon, best_alpha_rot, t_u, t_v
 
-def _fit_spline(da, data_array, optimal_knots=10, gamma_grid=np.logspace(-1, 4, 15), degree=3):
+def _fit_spline(da, data_array, optimal_knots=10, gamma_grid=np.logspace(-1, 5, 15), degree=3):
     ls_lat = data_array[:, 0]
     ls_lon = data_array[:, 1]
     rot_hat = data_array[:, 2]
