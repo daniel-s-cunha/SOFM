@@ -1351,24 +1351,46 @@ def _strucOracle_PCA(
         #
         #
         pls = float('inf')
-        for i in range(100): # Allow more iterations since M-steps need to converge
-            optimizer.zero_grad()
-            sigma = torch.exp(log_sigma)
-            L_diag = torch.exp(log_L_diag)
-            loss = _oracle_neg_lik_samp(sigma, L_diag, U, Ez, Ezz, m, T, Y, term1, k) 
-            ls = loss.item()
-            if abs(pls - ls) / (abs(pls) + 1e-8) < 1e-5: 
-                break
+        # for i in range(100): # Allow more iterations since M-steps need to converge
+        #     optimizer.zero_grad()
+        #     sigma = torch.exp(log_sigma)
+        #     L_diag = torch.exp(log_L_diag)
+        #     loss = _oracle_neg_lik_samp(sigma, L_diag, U, Ez, Ezz, m, T, Y, term1, k) 
+        #     ls = loss.item()
+        #     if abs(pls - ls) / (abs(pls) + 1e-8) < 1e-5: 
+        #         break
                 
-            pls = ls
-            loss.backward()
-            optimizer.step()
-        sigma2 = sigma**2
-        #
-        if (abs(ls - prev_ll) < tol_em * abs(prev_ll)) and (iteration > 5):
-            break
-        prev_ll = ls        
-    #
+        #     pls = ls
+        #     loss.backward()
+        #     optimizer.step()
+        # sigma2 = sigma**2
+        # Exact closed-form M-step (Replaces the entire 'for i in range(100):' loop)
+        with torch.no_grad():
+            # 1. Update L_diag
+            A = U.T @ Y @ Ez.T
+            B = Ezz # T * sigma2 * M_inv + Ez @ Ez.T
+            
+            # Extract diagonals
+            A_diag = torch.diagonal(A)
+            B_diag = torch.diagonal(B)
+            
+            # Closed form for L
+            L_diag = A_diag / B_diag
+            
+            # 2. Update sigma2
+            L2 = L_diag**2
+            trace_A = 2.0 * torch.sum(A_diag * L_diag)
+            trace_B = torch.sum(B_diag * L2)
+            
+            sigma2 = (term1 - trace_A + trace_B) / (m * T)
+            sigma = torch.sqrt(sigma2)
+            #
+            loss = _oracle_neg_lik_samp(sigma, L_diag, U, Ez, Ezz, m, T, Y, term1, k)
+            ls = loss.item()
+            #           
+            if (abs(ls - prev_ll) < tol_em * abs(prev_ll)) and (iteration > 5):
+                break
+            prev_ll = ls
     #
     L_diag, indices = torch.sort(L_diag, descending=True)
     U = U[:, indices]
