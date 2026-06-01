@@ -413,7 +413,7 @@ def _spatPCA(
     trSigma = torch.tensor(phi*m, dtype = torch.float32)
     #
     # 3) initialize
-    #np.random.seed(42)
+    np.random.seed(42)
     ULVT = randomized_svd(Y_da.values, n_components=k,n_iter=1)
     U = torch.tensor(ULVT[0], dtype=torch.float32)
     SU = Sigma@U
