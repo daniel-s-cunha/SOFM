@@ -975,11 +975,9 @@ def _fit_spline(da, data_array, optimal_knots=10, gamma_grid=np.logspace(-1, 3, 
         sse_lon = np.sum((y_lon - y_hat_lon)**2)
         sse_rot = np.sum((y_rot - y_hat_rot)**2)
         
-        # FIX 3: GCV Inflation factor to aggressively penalize undersmoothing
         inflation_factor = 1  # 1.4
         effective_N_penalty = inflation_factor * edf
         
-        # Guard against the squared denominator flipping negative values to positive
         if effective_N_penalty >= N:
             continue
             
