@@ -4,7 +4,7 @@ Spatially orthogonal factor models
 import xarray as xr
 from sofm import SOFM
 
-# 1. Load your spatial data (ensure it has 'location' indexed with 'lat'/'lon')
+# 1. Load spatial data (ensure it has 'location' dimension indexed with 'lat'/'lon')
 # data_xr = ... 
 
 # 2. Initialize the SOFM model for 5 latent factors
