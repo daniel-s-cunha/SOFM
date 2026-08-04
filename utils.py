@@ -338,14 +338,26 @@ def _construct_index_based_cov(da, variance=1.0, length_scale=10.0, length_scale
     lats = da.lat.values
     lons = da.lon.values
     N = len(lats)
-    
+    #    
     # 3: Check for exact pixel coordinates to use for distance calculation
     if hasattr(da, 'pxl_row_in_fullres') and hasattr(da, 'pxl_col_in_fullres'):
-        lat_dist = da.pxl_row_in_fullres.values
-        lon_dist = da.pxl_col_in_fullres.values
+        dx_pxl = np.diff(da.pxl_col_in_fullres.values)
+        dy_pxl = np.diff(da.pxl_row_in_fullres.values)
+        sq_dist_pxl = dx_pxl**2 + dy_pxl**2
+        non_zero_sq_dist = sq_dist_pxl[sq_dist_pxl > 1e-5]
+        unit_distance = np.sqrt(np.percentile(non_zero_sq_dist, 1))
+        #
+        lat_dist = da.pxl_row_in_fullres.values/unit_distance
+        lon_dist = da.pxl_col_in_fullres.values/unit_distance
     elif 'pxl_row_in_fullres' in da.coords and 'pxl_col_in_fullres' in da.coords:
-        lat_dist = da.pxl_row_in_fullres.values
-        lon_dist = da.pxl_col_in_fullres.values
+        dx_pxl = np.diff(da.pxl_col_in_fullres.values)
+        dy_pxl = np.diff(da.pxl_row_in_fullres.values)
+        sq_dist_pxl = dx_pxl**2 + dy_pxl**2
+        non_zero_sq_dist = sq_dist_pxl[sq_dist_pxl > 1e-5]
+        unit_distance = np.sqrt(np.percentile(non_zero_sq_dist, 1))
+        #
+        lat_dist = da.pxl_row_in_fullres.values/unit_distance
+        lon_dist = da.pxl_col_in_fullres.values/unit_distance
     else:
         lat_dist = lats
         lon_dist = lons
