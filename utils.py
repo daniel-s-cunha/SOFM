@@ -218,8 +218,7 @@ def _optimize_log_prior(U, Sigma, phi, m, k):
 
 def _compute_spat_cov_rs(da,phi=1, length_scale = 1, length_scale2 = -99, rot=0, max_lag=10):
     cov = _construct_index_based_cov(
-        da.lat.values, 
-        da.lon.values, 
+        da, 
         variance=phi,
         length_scale = length_scale,
         length_scale2 = length_scale2,
