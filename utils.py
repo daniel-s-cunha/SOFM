@@ -230,9 +230,128 @@ def _compute_spat_cov_rs(da,phi=1, length_scale = 1, length_scale2 = -99, rot=0,
     return _convert_S_tensor(cov)
 
 
-def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, length_scale2=-99, rot=0, max_lag=10):
+# def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, length_scale2=-99, rot=0, max_lag=10):
+#     N = len(lats)
+    
+#     u_lats = np.unique(np.round(lats, 8))
+#     u_lons = np.unique(np.round(lons, 8))
+    
+#     n_rows = len(u_lats)
+#     n_cols = len(u_lons)
+    
+#     row_indices = np.searchsorted(u_lats, np.round(lats, 8))
+#     col_indices = np.searchsorted(u_lons, np.round(lons, 8))
+    
+#     grid_map = np.full((n_rows, n_cols), -1, dtype=np.int32)
+#     grid_map[row_indices, col_indices] = np.arange(N)
+
+#     rows_out = []
+#     cols_out = []
+#     data_out = []
+    
+#     rows_out.append(np.arange(N))
+#     cols_out.append(np.arange(N))
+#     data_out.append(np.full(N, variance))
+
+#     lat_step = np.min(np.diff(u_lats))
+#     lon_step = np.min(np.diff(u_lons))        
+#     min_step = min(lat_step, lon_step)
+    
+#     # --- Precompute Stationary Anisotropic Rotation Coefficients ---
+#     if length_scale2 != -99:
+#         c = np.cos(rot)
+#         s = np.sin(rot)
+#         l1_sq = 2 * length_scale**2
+#         l2_sq = 2 * length_scale2**2
+        
+#         A = (c**2 / l1_sq) + (s**2 / l2_sq)
+#         B = (s**2 / l1_sq) + (c**2 / l2_sq)
+#         C = c * s * (1 / l1_sq - 1 / l2_sq)
+    
+#     for dr in range(-max_lag, max_lag + 1):
+#         for dc in range(-max_lag, max_lag + 1):
+#             if dr == 0 and dc == 0: 
+#                 continue 
+
+#             if dr >= 0:
+#                 r_src_start, r_src_end = 0, n_rows - dr
+#                 r_dst_start, r_dst_end = dr, n_rows
+#             else:
+#                 r_src_start, r_src_end = -dr, n_rows
+#                 r_dst_start, r_dst_end = 0, n_rows + dr
+                
+#             if dc >= 0:
+#                 c_src_start, c_src_end = 0, n_cols - dc
+#                 c_dst_start, c_dst_end = dc, n_cols
+#             else:
+#                 c_src_start, c_src_end = -dc, n_cols
+#                 c_dst_start, c_dst_end = 0, n_cols + dc
+            
+#             # If shift is larger than grid, skip
+#             if r_src_end <= r_src_start or c_src_end <= c_src_start:
+#                 continue
+
+#             src = grid_map[r_src_start:r_src_end, c_src_start:c_src_end].ravel()
+#             dst = grid_map[r_dst_start:r_dst_end, c_dst_start:c_dst_end].ravel()
+            
+#             mask = (src != -1) & (dst != -1)
+#             mask &= (src < dst)
+            
+#             if not mask.any():
+#                 continue
+                
+#             u = src[mask]
+#             v = dst[mask]
+            
+#             dx = lats[u] - lats[v]
+#             dy = lons[u] - lons[v]
+            
+#             if length_scale2 == -99:
+#                 # Isotropic (rotation has no effect)
+#                 d_sq = (dx**2 + dy**2) / (2 * length_scale**2)
+#                 vals = variance * np.exp(-d_sq)
+#             else:
+#                 # Anisotropic with rotation
+#                 d_sq = A * dx**2 + B * dy**2 + 2 * C * dx * dy
+#                 vals = variance * np.exp(-d_sq) 
+                
+#             rows_out.append(u)
+#             cols_out.append(v)
+#             data_out.append(vals)
+
+#     diag_vals = data_out[0]
+    
+#     if len(rows_out) > 1:
+#         off_rows = np.concatenate(rows_out[1:])
+#         off_cols = np.concatenate(cols_out[1:])
+#         off_vals = np.concatenate(data_out[1:])
+        
+#         tri = sp.coo_matrix((off_vals, (off_rows, off_cols)), shape=(N, N))
+        
+#         full_cov = tri + tri.T + sp.diags(diag_vals, format='coo')
+#     else:
+#         full_cov = sp.diags(diag_vals, format='coo')
+        
+#     return full_cov.tocsr()
+
+def _construct_index_based_cov(da, variance=1.0, length_scale=10.0, length_scale2=-99, rot=0, max_lag=10):
+    # 1 & 2: Take da directly and extract index-based coordinates
+    lats = da.lat.values
+    lons = da.lon.values
     N = len(lats)
     
+    # 3: Check for exact pixel coordinates to use for distance calculation
+    if hasattr(da, 'pxl_row_in_fullres') and hasattr(da, 'pxl_col_in_fullres'):
+        lat_dist = da.pxl_row_in_fullres.values
+        lon_dist = da.pxl_col_in_fullres.values
+    elif 'pxl_row_in_fullres' in da.coords and 'pxl_col_in_fullres' in da.coords:
+        lat_dist = da.pxl_row_in_fullres.values
+        lon_dist = da.pxl_col_in_fullres.values
+    else:
+        lat_dist = lats
+        lon_dist = lons
+        
+    # 4: Use index-based lats/lons for grid creation (keeps the grid small and fast)
     u_lats = np.unique(np.round(lats, 8))
     u_lons = np.unique(np.round(lons, 8))
     
@@ -252,10 +371,6 @@ def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, leng
     rows_out.append(np.arange(N))
     cols_out.append(np.arange(N))
     data_out.append(np.full(N, variance))
-
-    lat_step = np.min(np.diff(u_lats))
-    lon_step = np.min(np.diff(u_lons))        
-    min_step = min(lat_step, lon_step)
     
     # --- Precompute Stationary Anisotropic Rotation Coefficients ---
     if length_scale2 != -99:
@@ -303,8 +418,9 @@ def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, leng
             u = src[mask]
             v = dst[mask]
             
-            dx = lats[u] - lats[v]
-            dy = lons[u] - lons[v]
+            # 5: Calculate actual spatial decay using exact pixel distances
+            dx = lat_dist[u] - lat_dist[v]
+            dy = lon_dist[u] - lon_dist[v]
             
             if length_scale2 == -99:
                 # Isotropic (rotation has no effect)
