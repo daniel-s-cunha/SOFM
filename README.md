@@ -15,7 +15,6 @@ Please use the `spatialLIBD_to_netcdf.R` script to download the DLPFC data from 
 
 ## Code example
 ```
-import xarray as xr
 from sofm import SOFM
 
 # 1. Load netcdf into xarray
