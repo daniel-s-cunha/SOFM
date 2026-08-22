@@ -1,6 +1,16 @@
 # SOFM
 Spatially orthogonal factor models
 
+## Installation
+
+Because SOFM relies on sparse matrix optimizations, you must install `scikit-sparse` via conda before installing this package:
+
+```bash
+conda install -c conda-forge scikit-sparse
+pip install sofm
+```
+
+## Data
 Please use the `spatialLIBD_to_netcdf.R` script to download the DLPFC data from R and save as a netcdf file to be imported into xarray.
 
 ```
