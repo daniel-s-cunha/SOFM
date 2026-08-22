@@ -24,6 +24,8 @@ import warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*Sparse CSR tensor support is in beta state.*")
 warnings.filterwarnings("ignore", message=".*The given NumPy array is not writable.*")
 warnings.filterwarnings("ignore", category=UserWarning, message=".*torch.sparse_compressed_tensor.*")
+warnings.filterwarnings("ignore", category=FutureWarning, message=".*Input has data type int64.*")
+warnings.filterwarnings("ignore", category=UserWarning, message=".*Sparse invariant checks are implicitly disabled.*")
 
 def _constr_spat_blk(da,block_sz=10):
     #da should be a single observation of the spatial process; block_sz is the side length

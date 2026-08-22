@@ -1,0 +1,11 @@
+LICENSE
+README.md
+pyproject.toml
+src/scov.py
+src/sofm.py
+src/utils.py
+src/sofm.egg-info/PKG-INFO
+src/sofm.egg-info/SOURCES.txt
+src/sofm.egg-info/dependency_links.txt
+src/sofm.egg-info/requires.txt
+src/sofm.egg-info/top_level.txt

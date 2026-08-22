@@ -14,7 +14,7 @@ class SOFM:
         n_components=1, 
         nonstationary=True, 
         max_lag=20, 
-        block_sz=5, 
+        block_sz=1, 
         n_blocks=20,
         n_cores = -1
     ):

@@ -46,3 +46,36 @@ fig.show()
 # 5. Analyze latent factors
 latent_factors = sofm_model.Ez_
 ```
+
+If helpful, try out the code using a synthetic dataset,
+```
+# 1. Generate Synthetic Data
+# Create a 30x30 spatial grid
+lats, lons = np.meshgrid(np.linspace(-5, 5, 30), np.linspace(-5, 5, 30))
+lat_flat = lats.flatten()
+lon_flat = lons.flatten()
+n_locations = len(lat_flat)
+n_features = 20
+
+factor1 = np.sin(lat_flat) + np.cos(lon_flat)      # Wavy pattern
+factor2 = np.exp(-(lat_flat**2 + lon_flat**2) / 2) # Central blob
+factor3 = lat_flat + lon_flat                      # Linear gradient
+Z = np.column_stack([factor1, factor2, factor3])
+
+np.random.seed(42)
+W = np.random.randn(3, n_features) # Synthetic loadings
+data_matrix = Z @ W + np.random.randn(n_locations, n_features) * 0.5
+
+da = xr.DataArray(
+    data_matrix,
+    dims=['location', 'feature'],
+    coords={
+        'lat': ('location', lat_flat),
+        'lon': ('location', lon_flat),
+        'feature': np.arange(n_features)
+    }
+)
+da = da.set_index(location=['lat', 'lon'])
+da = da - da.mean(dim='location')
+
+```
