@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sofm"
+version = "0.1.0"
+description = "Spatially Orthogonal Factor Model (SOFM)"
+readme = "README.md"
+authors = [
+    { name = "Dan Cunha", email = "dcunha@bu.edu" }
+]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "joblib>=1.5.1",
+    "matplotlib>=3.11.1",
+    "numpy>=2.5.2",
+    "pandas>=3.0.5",
+    "scikit-learn>=1.9.0",
+    "scikit-sparse>=0.4.16",
+    "scipy>=1.18.1",
+    "seaborn>=0.13.2",
+    "sympy>=1.14.0",
+    "threadpoolctl>=3.6.0",
+    "torch>=2.10.0",
+    "tqdm>=4.67.1",
+    "xarray>=2025.8.0",
+    "xeofs>=3.0.4"
+]
+
+[project.urls]
+Homepage = "https://github.com/daniel-s-cunha/SOFM"
