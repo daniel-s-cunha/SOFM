@@ -3,7 +3,7 @@ library(spatialLIBD)
 library(SpatialExperiment)
 library(here)
 
-setwd('/projectnb/modislc/users/danc/')
+setwd('/.../')
 output_dir_nc <- here("dlpfc_netcdf_data")
 dir.create(output_dir_nc, showWarnings = FALSE)
 
