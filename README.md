@@ -1,5 +1,6 @@
 # SOFM
 Spatially orthogonal factor models
+
 Please use the `spatialLIBD_to_netcdf.R` script to download the DLPFC data from R and save as a netcdf file to be imported into xarray.
 
 ```
@@ -7,7 +8,8 @@ import xarray as xr
 from sofm import SOFM
 
 # 1. Load netcdf into xarray
-da = xr.open_dataset("/projectnb/modislc/users/danc/dlpfc_netcdf_data/151675_spatial_expression.nc", engine='netcdf4')['logcounts']
+# Please see `spatialLIBD_to_netcdf.R` for directions on formatting the netcdf file.
+da = xr.open_dataset("/data_directory/spatial_transcriptomic_data.nc", engine='netcdf4')['logcounts']
 
 da = da - da.mean(dim='spot') #SOFM assumes the mean structure has been subtracted
 da = da.rename({ #SOFM assumes `da` has `location` dimension indexed by `lat,lon` coordinates
