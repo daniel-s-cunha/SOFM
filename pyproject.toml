@@ -4,14 +4,23 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sofm"
-version = "0.1.5"
+version = "0.1.6"
 description = "Spatially Orthogonal Factor Model (SOFM)"
 readme = "README.md"
+# authors = [
+#     { name = "Dan Cunha", email = "dcunha@bu.edu" },
+#     { name = "Lukas M. Weber", email = "weberlm3@gmail.com" },
+#     { name = "Mark A. Friedl", email = "friedl@bu.edu" },
+#     { name = "Luis Carvalho", email = "lecarval@bu.edu" }
+# ]
 authors = [
-    { name = "Dan Cunha", email = "dcunha@bu.edu" },
-    { name = "Lukas M. Weber", email = "weberlm3@gmail.com" },
-    { name = "Mark A. Friedl", email = "friedl@bu.edu" },
-    { name = "Luis Carvalho", email = "lecarval@bu.edu" }
+    { name = "Dan Cunha" },
+    { name = "Lukas M. Weber" },
+    { name = "Mark A. Friedl" },
+    { name = "Luis Carvalho" }
+]
+maintainers = [
+    { name = "Dan Cunha", email = "dcunha@bu.edu" }
 ]
 license = { text = "MIT" }
 classifiers = [
