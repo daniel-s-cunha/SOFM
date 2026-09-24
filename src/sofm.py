@@ -45,6 +45,22 @@ class SOFM:
         phi = self.spatcov_.sill_
         data = self.spatcov_.data
         
+        ##############################################################################################################################
+        #THIS IS JUST NEEDED TO SEE IF HELD-OUT LIKELIHOOD IS RELATED TO ARI!~!
+        ##############################################################################################################################
+        #
+        U1, L1, Ez1, sigma21, loss1, loss_tot = utils._cv_spatPCA(
+            self.data, 
+            Sigma, 
+            self.holdout_, 
+            k=self.n_components, 
+            phi=phi
+        )
+        print(f'The held-out negative log likelihood for selected model is nll={loss_tot}')
+        #
+        ##############################################################################################################################
+        ##############################################################################################################################
+
         print("Refitting full model...")
         
         U, L, Ez, sigma2, loss, = utils._spatPCA(
