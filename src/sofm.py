@@ -49,10 +49,11 @@ class SOFM:
         #THIS IS JUST NEEDED TO SEE IF HELD-OUT LIKELIHOOD IS RELATED TO ARI!~!
         ##############################################################################################################################
         #
+        holdout = self.spatcov_.holdout_
         U1, L1, Ez1, sigma21, loss1, loss_tot = utils._cv_spatPCA(
-            self.data, 
+            data, 
             Sigma, 
-            self.holdout_, 
+            holdout, 
             k=self.n_components, 
             phi=phi
         )
