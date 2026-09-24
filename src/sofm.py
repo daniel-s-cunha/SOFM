@@ -34,6 +34,7 @@ class SOFM:
         self.L_ = None
         self.Ez_ = None
         self.sigma2_ = None
+        self.nll_ = None
 
     def fit(self, lss=[1,3,5], phis=[1e1,1e2,1e3], rots = [0, np.pi/12, 2*np.pi/12]):
         #
@@ -58,7 +59,7 @@ class SOFM:
             phi=phi
         )
         print(f'The held-out negative log likelihood for selected model is nll={loss_tot}')
-        self.nll = loss_tot
+        self.nll_ = loss_tot
         #
         ##############################################################################################################################
         ##############################################################################################################################
