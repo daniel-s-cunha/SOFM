@@ -1080,7 +1080,7 @@ def _comp_nll(Yp, Y, U, L_diag, sigma2, M_inv, m, m0, mask_ids):
 
 #     return best_alpha_lat, best_alpha_lon, best_alpha_rot, t_u, t_v
 
-def _fit_spline(da, data_array, optimal_knots=10, gamma_grid=np.logspace(-1, 3, 15), degree=3):
+def _fit_spline(da, data_array, optimal_knots=20, gamma_grid=np.logspace(-1, 3, 15), degree=3):
     ls_lat = data_array[:, 0]
     ls_lon = data_array[:, 1]
     rot_hat = data_array[:, 2]
@@ -1197,7 +1197,7 @@ def _fit_spline(da, data_array, optimal_knots=10, gamma_grid=np.logspace(-1, 3, 
     if best_params_lat and best_params_lon and best_params_rot:
         print(f"Latitudinal spline | Knots: {best_params_lat[2]} | gamma_u: {best_params_lat[0]:.2e} | gamma_v: {best_params_lat[1]:.2e}")
         print(f"Longitudinal spline | Knots: {best_params_lon[2]} | gamma_u: {best_params_lon[0]:.2e} | gamma_v: {best_params_lon[1]:.2e}")
-        print(f"Rotational spline | Knots: {best_params_rot[2]} | gamma_u: {best_params_rot[0]:.2e} | gamma_v: {best_params_rot[1]:.2e}")
+        #print(f"Rotational spline | Knots: {best_params_rot[2]} | gamma_u: {best_params_rot[0]:.2e} | gamma_v: {best_params_rot[1]:.2e}")
 
     return best_alpha_lat, best_alpha_lon, best_alpha_rot, t_u, t_v
 
