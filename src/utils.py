@@ -1201,7 +1201,123 @@ def _fit_spline(da, data_array, optimal_knots=10, gamma_grid=np.logspace(-2, 4, 
 
     return best_alpha_lat, best_alpha_lon, best_alpha_rot, t_u, t_v
 
-def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v, variance=1.0, max_lag=10, degree=3):
+# def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v, variance=1.0, max_lag=10, degree=3):
+#     N = len(lats)
+        
+#     B_u = BSpline.design_matrix(lats, t_u, degree).toarray()
+#     B_v = BSpline.design_matrix(lons, t_v, degree).toarray()
+
+#     B = np.einsum('ik,il->ikl', B_v, B_u).reshape(N, -1)
+#     lam_lat = np.exp(B @ alpha_lat)
+#     lam_lon = np.exp(B @ alpha_lon)
+#     rot = B @ alpha_rot
+    
+#     lam_lat_sq = lam_lat**2
+#     lam_lon_sq = lam_lon**2
+#     cos_rot = np.cos(rot)
+#     sin_rot = np.sin(rot)
+    
+#     # Elements of the local 2x2 covariance matrices for each location
+#     a_cov = lam_lat_sq * cos_rot**2 + lam_lon_sq * sin_rot**2
+#     b_cov = lam_lat_sq * sin_rot**2 + lam_lon_sq * cos_rot**2
+#     c_cov = (lam_lat_sq - lam_lon_sq) * cos_rot * sin_rot
+    
+#     # --- 2. Grid Mapping for Fast Neighbor Search ---
+#     u_lats = np.unique(np.round(lats, 8))
+#     u_lons = np.unique(np.round(lons, 8))
+    
+#     n_rows = len(u_lats)
+#     n_cols = len(u_lons)
+    
+#     row_indices = np.searchsorted(u_lats, np.round(lats, 8))
+#     col_indices = np.searchsorted(u_lons, np.round(lons, 8))
+    
+#     grid_map = np.full((n_rows, n_cols), -1, dtype=np.int32)
+#     grid_map[row_indices, col_indices] = np.arange(N)
+
+#     rows_out = [np.arange(N)]
+#     cols_out = [np.arange(N)]
+#     data_out = [np.full(N, variance)]
+    
+#     for dr in range(-max_lag, max_lag + 1):
+#         for dc in range(-max_lag, max_lag + 1):
+#             if dr == 0 and dc == 0: 
+#                 continue 
+
+#             if dr >= 0:
+#                 r_src_start, r_src_end = 0, n_rows - dr
+#                 r_dst_start, r_dst_end = dr, n_rows
+#             else:
+#                 r_src_start, r_src_end = -dr, n_rows
+#                 r_dst_start, r_dst_end = 0, n_rows + dr
+                
+#             if dc >= 0:
+#                 c_src_start, c_src_end = 0, n_cols - dc
+#                 c_dst_start, c_dst_end = dc, n_cols
+#             else:
+#                 c_src_start, c_src_end = -dc, n_cols
+#                 c_dst_start, c_dst_end = 0, n_cols + dc
+            
+#             if r_src_end <= r_src_start or c_src_end <= c_src_start:
+#                 continue
+
+#             src = grid_map[r_src_start:r_src_end, c_src_start:c_src_end].ravel()
+#             dst = grid_map[r_dst_start:r_dst_end, c_dst_start:c_dst_end].ravel()
+            
+#             mask = (src != -1) & (dst != -1)
+#             mask &= (src < dst)
+            
+#             if not mask.any():
+#                 continue
+                
+#             u = src[mask]
+#             v = dst[mask]
+            
+#             # Distance vectors
+#             dx = lats[u] - lats[v]
+#             dy = lons[u] - lons[v]
+            
+#             # Average covariance matrix elements: Sigma_avg = (Sigma_u + Sigma_v) / 2
+#             a_avg = (a_cov[u] + a_cov[v]) / 2.0
+#             b_avg = (b_cov[u] + b_cov[v]) / 2.0
+#             c_avg = (c_cov[u] + c_cov[v]) / 2.0
+            
+#             # Determinant of the averaged covariance matrix
+#             det_avg = a_avg * b_avg - c_avg**2
+            
+#             # The determinants of the individual matrices are invariant to rotation
+#             det_u = lam_lat[u] * lam_lon[u]  # This is sqrt(|Sigma_u|)
+#             det_v = lam_lat[v] * lam_lon[v]  # This is sqrt(|Sigma_v|)
+            
+#             # S_uv scaling factor
+#             S_uv = np.sqrt(det_u * det_v) / np.sqrt(det_avg)
+            
+#             # Explicit 2x2 matrix inverse for the quadratic form: (X^T * Sigma_avg^-1 * X)
+#             Q_uv = (b_avg * dx**2 - 2 * c_avg * dx * dy + a_avg * dy**2) / det_avg
+            
+#             vals = variance * S_uv * np.exp(-0.5 * Q_uv)
+
+#             rows_out.append(u)
+#             cols_out.append(v)
+#             data_out.append(vals)
+
+#     diag_vals = data_out[0]
+    
+#     if len(rows_out) > 1:
+#         off_rows = np.concatenate(rows_out[1:])
+#         off_cols = np.concatenate(cols_out[1:])
+#         off_vals = np.concatenate(data_out[1:])
+        
+#         tri = sp.coo_matrix((off_vals, (off_rows, off_cols)), shape=(N, N))
+        
+#         full_cov = tri + tri.T + sp.diags(diag_vals, format='coo')
+#     else:
+#         full_cov = sp.diags(diag_vals, format='coo')
+        
+#     return _convert_S_tensor(full_cov.tocsr()), lam_lat, lam_lon, rot
+
+
+def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v, variance=1.0, k=10, degree=3):
     N = len(lats)
         
     B_u = BSpline.design_matrix(lats, t_u, degree).toarray()
@@ -1235,12 +1351,15 @@ def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v
     grid_map = np.full((n_rows, n_cols), -1, dtype=np.int32)
     grid_map[row_indices, col_indices] = np.arange(N)
 
-    rows_out = [np.arange(N)]
-    cols_out = [np.arange(N)]
-    data_out = [np.full(N, variance)]
+    # Intelligently size the search window to guarantee we evaluate enough neighbors 
+    # to find the top k, falling back to a minimum grid window for safety.
+    search_radius = max(int(np.ceil(np.sqrt(k)) * 2), 10)
+    search_radius = min(search_radius, n_rows, n_cols)
     
-    for dr in range(-max_lag, max_lag + 1):
-        for dc in range(-max_lag, max_lag + 1):
+    U_list, V_list, Q_list, S_list = [], [], [], []
+    
+    for dr in range(-search_radius, search_radius + 1):
+        for dc in range(-search_radius, search_radius + 1):
             if dr == 0 and dc == 0: 
                 continue 
 
@@ -1264,8 +1383,8 @@ def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v
             src = grid_map[r_src_start:r_src_end, c_src_start:c_src_end].ravel()
             dst = grid_map[r_dst_start:r_dst_end, c_dst_start:c_dst_end].ravel()
             
+            # Note: No (src < dst) restriction here to allow full symmetric neighbor ranking
             mask = (src != -1) & (dst != -1)
-            mask &= (src < dst)
             
             if not mask.any():
                 continue
@@ -1277,42 +1396,74 @@ def _construct_nonstat_cov(lats, lons, alpha_lat, alpha_lon, alpha_rot, t_u, t_v
             dx = lats[u] - lats[v]
             dy = lons[u] - lons[v]
             
-            # Average covariance matrix elements: Sigma_avg = (Sigma_u + Sigma_v) / 2
+            # Average covariance matrix elements
             a_avg = (a_cov[u] + a_cov[v]) / 2.0
             b_avg = (b_cov[u] + b_cov[v]) / 2.0
             c_avg = (c_cov[u] + c_cov[v]) / 2.0
             
-            # Determinant of the averaged covariance matrix
+            # Determinants
             det_avg = a_avg * b_avg - c_avg**2
+            det_u = lam_lat[u] * lam_lon[u]
+            det_v = lam_lat[v] * lam_lon[v]
             
-            # The determinants of the individual matrices are invariant to rotation
-            det_u = lam_lat[u] * lam_lon[u]  # This is sqrt(|Sigma_u|)
-            det_v = lam_lat[v] * lam_lon[v]  # This is sqrt(|Sigma_v|)
-            
-            # S_uv scaling factor
+            # Scaling and Distance
             S_uv = np.sqrt(det_u * det_v) / np.sqrt(det_avg)
-            
-            # Explicit 2x2 matrix inverse for the quadratic form: (X^T * Sigma_avg^-1 * X)
             Q_uv = (b_avg * dx**2 - 2 * c_avg * dx * dy + a_avg * dy**2) / det_avg
             
-            vals = variance * S_uv * np.exp(-0.5 * Q_uv)
+            U_list.append(u)
+            V_list.append(v)
+            Q_list.append(Q_uv)
+            S_list.append(S_uv)
 
-            rows_out.append(u)
-            cols_out.append(v)
-            data_out.append(vals)
+    diag_vals = np.full(N, variance)
 
-    diag_vals = data_out[0]
-    
-    if len(rows_out) > 1:
-        off_rows = np.concatenate(rows_out[1:])
-        off_cols = np.concatenate(cols_out[1:])
-        off_vals = np.concatenate(data_out[1:])
-        
-        tri = sp.coo_matrix((off_vals, (off_rows, off_cols)), shape=(N, N))
-        
-        full_cov = tri + tri.T + sp.diags(diag_vals, format='coo')
-    else:
+    if not U_list:
         full_cov = sp.diags(diag_vals, format='coo')
+        return _convert_S_tensor(full_cov.tocsr()), lam_lat, lam_lon, rot
+
+    U = np.concatenate(U_list)
+    V = np.concatenate(V_list)
+    Q = np.concatenate(Q_list)
+    S = np.concatenate(S_list)
+    del U_list, V_list, Q_list, S_list
+
+    # --- Fast Pure-NumPy k-NN Extraction ---
+    # 1. Sort primarily by origin node (U), secondarily by generalized distance (Q)
+    sort_idx = np.lexsort((Q, U))
+    U_sorted = U[sort_idx]
+    V_sorted = V[sort_idx]
+    Q_sorted = Q[sort_idx]
+    S_sorted = S[sort_idx]
+
+    # 2. Vectorized logic to generate the neighbor rank
+    _, u_starts = np.unique(U_sorted, return_index=True)
+    ranks = np.ones(len(U_sorted), dtype=int)
+    ranks[u_starts] = 1 - np.diff(np.append([0], u_starts))
+    ranks = np.cumsum(ranks)
+
+    # 3. Filter down to only the k-nearest neighbors
+    keep_mask = ranks <= k
+    U_k = U_sorted[keep_mask]
+    V_k = V_sorted[keep_mask]
+    Q_k = Q_sorted[keep_mask]
+    S_k = S_sorted[keep_mask]
+
+    # --- Enforce Matrix Symmetry ---
+    edges = np.column_stack((U_k, V_k))
+    edges.sort(axis=1) # Ensure smaller index is always first (u < v)
+    
+    unique_edges, unique_idx = np.unique(edges, axis=0, return_index=True)
+    Q_unique = Q_k[unique_idx]
+    S_unique = S_k[unique_idx]
+    
+    off_rows = unique_edges[:, 0]
+    off_cols = unique_edges[:, 1]
+    
+    # Defer the expensive np.exp() calculation until after pruning duplicates
+    off_vals = variance * S_unique * np.exp(-0.5 * Q_unique)
+    
+    tri = sp.coo_matrix((off_vals, (off_rows, off_cols)), shape=(N, N))
+    full_cov = tri + tri.T + sp.diags(diag_vals, format='coo')
         
     return _convert_S_tensor(full_cov.tocsr()), lam_lat, lam_lon, rot
 
