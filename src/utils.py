@@ -219,121 +219,25 @@ def _optimize_log_prior(U, Sigma, phi, m, k):
     return sigma.detach().numpy(), L_diag.detach().numpy()
 
 def _compute_spat_cov_rs(da,phi=1, length_scale = 1, length_scale2 = -99, rot=0, max_lag=10):
-    cov = _construct_index_based_cov(
+    # cov = _construct_index_based_cov(
+    #     da, 
+    #     variance=phi,
+    #     length_scale = length_scale,
+    #     length_scale2 = length_scale2,
+    #     rot = rot,
+    #     max_lag=max_lag
+    # )
+    # #
+    cov = _construct_knn_based_cov(
         da, 
         variance=phi,
         length_scale = length_scale,
         length_scale2 = length_scale2,
-        rot = rot,
-        max_lag=max_lag
+        rot = 0,
+        k=max_lag
     )
-    #
     return _convert_S_tensor(cov)
 
-
-# def _construct_index_based_cov(lats, lons, variance=1.0, length_scale=10.0, length_scale2=-99, rot=0, max_lag=10):
-#     N = len(lats)
-    
-#     u_lats = np.unique(np.round(lats, 8))
-#     u_lons = np.unique(np.round(lons, 8))
-    
-#     n_rows = len(u_lats)
-#     n_cols = len(u_lons)
-    
-#     row_indices = np.searchsorted(u_lats, np.round(lats, 8))
-#     col_indices = np.searchsorted(u_lons, np.round(lons, 8))
-    
-#     grid_map = np.full((n_rows, n_cols), -1, dtype=np.int32)
-#     grid_map[row_indices, col_indices] = np.arange(N)
-
-#     rows_out = []
-#     cols_out = []
-#     data_out = []
-    
-#     rows_out.append(np.arange(N))
-#     cols_out.append(np.arange(N))
-#     data_out.append(np.full(N, variance))
-
-#     lat_step = np.min(np.diff(u_lats))
-#     lon_step = np.min(np.diff(u_lons))        
-#     min_step = min(lat_step, lon_step)
-    
-#     # --- Precompute Stationary Anisotropic Rotation Coefficients ---
-#     if length_scale2 != -99:
-#         c = np.cos(rot)
-#         s = np.sin(rot)
-#         l1_sq = 2 * length_scale**2
-#         l2_sq = 2 * length_scale2**2
-        
-#         A = (c**2 / l1_sq) + (s**2 / l2_sq)
-#         B = (s**2 / l1_sq) + (c**2 / l2_sq)
-#         C = c * s * (1 / l1_sq - 1 / l2_sq)
-    
-#     for dr in range(-max_lag, max_lag + 1):
-#         for dc in range(-max_lag, max_lag + 1):
-#             if dr == 0 and dc == 0: 
-#                 continue 
-
-#             if dr >= 0:
-#                 r_src_start, r_src_end = 0, n_rows - dr
-#                 r_dst_start, r_dst_end = dr, n_rows
-#             else:
-#                 r_src_start, r_src_end = -dr, n_rows
-#                 r_dst_start, r_dst_end = 0, n_rows + dr
-                
-#             if dc >= 0:
-#                 c_src_start, c_src_end = 0, n_cols - dc
-#                 c_dst_start, c_dst_end = dc, n_cols
-#             else:
-#                 c_src_start, c_src_end = -dc, n_cols
-#                 c_dst_start, c_dst_end = 0, n_cols + dc
-            
-#             # If shift is larger than grid, skip
-#             if r_src_end <= r_src_start or c_src_end <= c_src_start:
-#                 continue
-
-#             src = grid_map[r_src_start:r_src_end, c_src_start:c_src_end].ravel()
-#             dst = grid_map[r_dst_start:r_dst_end, c_dst_start:c_dst_end].ravel()
-            
-#             mask = (src != -1) & (dst != -1)
-#             mask &= (src < dst)
-            
-#             if not mask.any():
-#                 continue
-                
-#             u = src[mask]
-#             v = dst[mask]
-            
-#             dx = lats[u] - lats[v]
-#             dy = lons[u] - lons[v]
-            
-#             if length_scale2 == -99:
-#                 # Isotropic (rotation has no effect)
-#                 d_sq = (dx**2 + dy**2) / (2 * length_scale**2)
-#                 vals = variance * np.exp(-d_sq)
-#             else:
-#                 # Anisotropic with rotation
-#                 d_sq = A * dx**2 + B * dy**2 + 2 * C * dx * dy
-#                 vals = variance * np.exp(-d_sq) 
-                
-#             rows_out.append(u)
-#             cols_out.append(v)
-#             data_out.append(vals)
-
-#     diag_vals = data_out[0]
-    
-#     if len(rows_out) > 1:
-#         off_rows = np.concatenate(rows_out[1:])
-#         off_cols = np.concatenate(cols_out[1:])
-#         off_vals = np.concatenate(data_out[1:])
-        
-#         tri = sp.coo_matrix((off_vals, (off_rows, off_cols)), shape=(N, N))
-        
-#         full_cov = tri + tri.T + sp.diags(diag_vals, format='coo')
-#     else:
-#         full_cov = sp.diags(diag_vals, format='coo')
-        
-#     return full_cov.tocsr()
 
 def _construct_index_based_cov(da, variance=1.0, length_scale=10.0, length_scale2=-99, rot=0, max_lag=10):
     # 1 & 2: Take da directly and extract index-based coordinates
@@ -462,6 +366,166 @@ def _construct_index_based_cov(da, variance=1.0, length_scale=10.0, length_scale
         full_cov = sp.diags(diag_vals, format='coo')
         
     return full_cov.tocsr()
+
+
+def _construct_knn_based_cov(da, variance=1.0, length_scale=10.0, length_scale2=-99, rot=0, k=10):
+    # 1 & 2: Take da directly and extract index-based coordinates
+    lats = da.lat.values
+    lons = da.lon.values
+    N = len(lats)
+    
+    # 3: Check for exact pixel coordinates to use for distance calculation
+    if hasattr(da, 'pxl_row_in_fullres') and hasattr(da, 'pxl_col_in_fullres'):
+        dx_pxl = np.diff(da.pxl_col_in_fullres.values)
+        dy_pxl = np.diff(da.pxl_row_in_fullres.values)
+        sq_dist_pxl = dx_pxl**2 + dy_pxl**2
+        non_zero_sq_dist = sq_dist_pxl[sq_dist_pxl > 1e-5]
+        unit_distance = np.sqrt(np.percentile(non_zero_sq_dist, 1))
+        
+        lat_dist = da.pxl_row_in_fullres.values / unit_distance
+        lon_dist = da.pxl_col_in_fullres.values / unit_distance
+    elif 'pxl_row_in_fullres' in da.coords and 'pxl_col_in_fullres' in da.coords:
+        dx_pxl = np.diff(da.pxl_col_in_fullres.values)
+        dy_pxl = np.diff(da.pxl_row_in_fullres.values)
+        sq_dist_pxl = dx_pxl**2 + dy_pxl**2
+        non_zero_sq_dist = sq_dist_pxl[sq_dist_pxl > 1e-5]
+        unit_distance = np.sqrt(np.percentile(non_zero_sq_dist, 1))
+        
+        lat_dist = da.pxl_row_in_fullres.values / unit_distance
+        lon_dist = da.pxl_col_in_fullres.values / unit_distance
+    else:
+        lat_dist = lats
+        lon_dist = lons
+        
+    # 4: Use index-based lats/lons for grid creation (keeps the grid small and fast)
+    u_lats = np.unique(np.round(lats, 8))
+    u_lons = np.unique(np.round(lons, 8))
+    
+    n_rows = len(u_lats)
+    n_cols = len(u_lons)
+    
+    row_indices = np.searchsorted(u_lats, np.round(lats, 8))
+    col_indices = np.searchsorted(u_lons, np.round(lons, 8))
+    
+    grid_map = np.full((n_rows, n_cols), -1, dtype=np.int32)
+    grid_map[row_indices, col_indices] = np.arange(N)
+
+    # --- Precompute Stationary Anisotropic Rotation Coefficients ---
+    if length_scale2 != -99:
+        c = np.cos(rot)
+        s = np.sin(rot)
+        l1_sq = 2 * length_scale**2
+        l2_sq = 2 * length_scale2**2
+        
+        A = (c**2 / l1_sq) + (s**2 / l2_sq)
+        B = (s**2 / l1_sq) + (c**2 / l2_sq)
+        C = c * s * (1 / l1_sq - 1 / l2_sq)
+    
+    # Intelligently size the search window to guarantee we evaluate enough neighbors 
+    # to find the top k, falling back to a minimum grid window for safety against missing pixels.
+    search_radius = max(int(np.ceil(np.sqrt(k)) * 2), 10)
+    search_radius = min(search_radius, n_rows, n_cols)
+    
+    U_list, V_list, D2_list = [], [], []
+
+    for dr in range(-search_radius, search_radius + 1):
+        for dc in range(-search_radius, search_radius + 1):
+            if dr == 0 and dc == 0: 
+                continue 
+
+            if dr >= 0:
+                r_src_start, r_src_end = 0, n_rows - dr
+                r_dst_start, r_dst_end = dr, n_rows
+            else:
+                r_src_start, r_src_end = -dr, n_rows
+                r_dst_start, r_dst_end = 0, n_rows + dr
+                
+            if dc >= 0:
+                c_src_start, c_src_end = 0, n_cols - dc
+                c_dst_start, c_dst_end = dc, n_cols
+            else:
+                c_src_start, c_src_end = -dc, n_cols
+                c_dst_start, c_dst_end = 0, n_cols + dc
+            
+            # If shift is larger than grid, skip
+            if r_src_end <= r_src_start or c_src_end <= c_src_start:
+                continue
+
+            src = grid_map[r_src_start:r_src_end, c_src_start:c_src_end].ravel()
+            dst = grid_map[r_dst_start:r_dst_end, c_dst_start:c_dst_end].ravel()
+            
+            # Note: We do NOT enforce (src < dst) here because finding the true k-NN 
+            # requires assessing all neighbors symmetrically in both directions first.
+            mask = (src != -1) & (dst != -1)
+            
+            if not mask.any():
+                continue
+                
+            u = src[mask]
+            v = dst[mask]
+            
+            # 5: Calculate actual spatial decay using exact pixel distances
+            dx = lat_dist[u] - lat_dist[v]
+            dy = lon_dist[u] - lon_dist[v]
+            
+            if length_scale2 == -99:
+                d_sq = (dx**2 + dy**2) / (2 * length_scale**2)
+            else:
+                d_sq = A * dx**2 + B * dy**2 + 2 * C * dx * dy 
+                
+            U_list.append(u)
+            V_list.append(v)
+            D2_list.append(d_sq)
+
+    diag_vals = np.full(N, variance)
+
+    if not U_list:
+        return sp.diags(diag_vals, format='coo').tocsr()
+
+    U = np.concatenate(U_list)
+    V = np.concatenate(V_list)
+    D2 = np.concatenate(D2_list)
+    del U_list, V_list, D2_list
+
+    # --- Fast Pure-NumPy k-NN Extraction ---
+    # 1. Sort primarily by origin node (U), and secondarily by distance (D2)
+    sort_idx = np.lexsort((D2, U))
+    U_sorted = U[sort_idx]
+    V_sorted = V[sort_idx]
+    D2_sorted = D2[sort_idx]
+
+    # 2. Vectorized logic to generate the neighbor rank (1 to N) for each group of U
+    _, u_starts = np.unique(U_sorted, return_index=True)
+    ranks = np.ones(len(U_sorted), dtype=int)
+    ranks[u_starts] = 1 - np.diff(np.append([0], u_starts))
+    ranks = np.cumsum(ranks)
+
+    # 3. Filter down to only the k-nearest neighbors
+    keep_mask = ranks <= k
+    U_k = U_sorted[keep_mask]
+    V_k = V_sorted[keep_mask]
+    D2_k = D2_sorted[keep_mask]
+
+    # --- Enforce Matrix Symmetry ---
+    # Since k-NN is an asymmetrical relationship (A might be B's neighbor, but B isn't A's),
+    # we enforce symmetry by treating the kept pairs as undirected edges.
+    edges = np.column_stack((U_k, V_k))
+    edges.sort(axis=1) # Ensure smaller index is always first (u < v)
+    
+    unique_edges, unique_idx = np.unique(edges, axis=0, return_index=True)
+    D2_unique = D2_k[unique_idx]
+    
+    off_rows = unique_edges[:, 0]
+    off_cols = unique_edges[:, 1]
+    
+    # Defer the expensive np.exp() calculation until after pruning
+    off_vals = variance * np.exp(-D2_unique)
+    
+    tri = sp.coo_matrix((off_vals, (off_rows, off_cols)), shape=(N, N))
+    full_cov = tri + tri.T + sp.diags(diag_vals, format='coo')
+        
+    return full_cov.tocsr()
+
 
 def _convert_S_tensor(scp_matrix):
     data = scp_matrix.data
