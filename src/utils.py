@@ -688,6 +688,7 @@ def _construct_knn_based_cov(da, variance=1.0, length_scale=10.0, length_scale2=
     
     # Add the degrees to the main diagonal 
     laplacian = adj_neg + sp.diags(degrees, format='coo')
+    laplacian = variance * laplacian
         
     return laplacian.tocsr()
 
